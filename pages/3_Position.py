@@ -257,7 +257,7 @@ elif state == "LONG_STOCK":
             src = st.radio("Source", ["MANUAL", "ALPACA_PAPER"], horizontal=True)
             commission = st.number_input("Commission", min_value=0.0, value=0.0, step=0.01)
             if summary.cost_basis and strike and price:
-                new_basis = summary.cost_basis - (contracts * 100 * price / 100)
+                new_basis = summary.cost_basis - price
                 st.caption(
                     f"New cost basis after this CC: **{fmt_dollar(new_basis)}**/sh"
                 )

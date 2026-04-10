@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS underlying (
     iv_52w_high     REAL,
     iv_52w_low      REAL,
     iv_updated      DATETIME,
+    earnings_date   DATE,       -- next earnings announcement (optional)
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

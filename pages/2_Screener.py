@@ -12,6 +12,7 @@ from datetime import date
 from src.db import get_conn
 from src.state_machine import open_short_put
 from src.ui_helpers import fmt_dollar, fmt_pct
+from src.market_data import refresh_all_watchlist, refresh_iv_for_ticker
 
 st.set_page_config(page_title="Screener", layout="wide")
 st.title("Screener")
@@ -21,7 +22,19 @@ st.title("Screener")
 # Watchlist
 # ---------------------------------------------------------------------------
 
-st.subheader("Watchlist")
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.subheader("Watchlist")
+with col2:
+    if st.button("🔄 Refresh all IV"):
+        with st.spinner("Fetching IV data..."):
+            results = refresh_all_watchlist()
+            successes = [r for r in results if "error" not in r]
+            errors = [r for r in results if "error" in r]
+            st.success(f"✓ Updated {len(successes)} tickers")
+            if errors:
+                st.warning(f"⚠️ {len(errors)} tickers failed to update")
+            st.rerun()
 
 with get_conn() as conn:
     underlyings = conn.execute(
