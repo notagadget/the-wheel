@@ -1,16 +1,17 @@
 # Handoff context — Wheel Trader
 
 ## Status
-Repo is functional and test-passing (47/47). Ready for next development phase.
+Repo is functional and test-passing (28/28). Screener, earnings tracking, and IV refresh complete. Ready for real-trade integration.
 
 ## What exists and works
 
 ### Core modules (src/)
-- `db.py` — SQLite connection, schema init, WAL mode
+- `db.py` — SQLite connection, schema init, WAL mode, migration runner
 - `state_machine.py` — all cycle transitions, optimistic Tradier fills
 - `cost_basis.py` — IV/pnl queries, audit validation
 - `tradier.py` — REST client: orders, options chain, IV history, quotes
 - `market_data.py` — IVR + IV percentile computation and DB cache
+- `screener.py` — equity screening (IV rank filter, earnings window, ranking)
 - `poller.py` — background thread, confirms/rejects PENDING trades every 30s
 
 ### UI (pages/)
@@ -25,29 +26,21 @@ Repo is functional and test-passing (47/47). Ready for next development phase.
 
 ## What is NOT built yet (priority order)
 
-1. **`src/screener.py`** — equity screening logic. Should query `underlying` table,
-   filter by IVR threshold, flag earnings within DTE window, rank candidates.
-   Key inputs: iv_rank_cached, iv_pct_cached, earnings date (not yet in schema).
-
-2. **Earnings calendar** — `underlying` table has no earnings_date column yet.
-   Add via migration. Source: Tradier GET /v1/markets/calendar or a manual field.
-
-3. **`.streamlit/secrets.toml` template** — credentials setup for Tradier.
+1. **`.streamlit/secrets.toml` template** — credentials setup for Tradier.
    Required keys: TRADIER_API_KEY, TRADIER_ACCOUNT_ID, TRADIER_ENV (sandbox|live).
 
-4. **`pages/2_Screener.py` IV refresh button** — calls `market_data.refresh_iv_for_ticker()`
-   or `refresh_all_watchlist()`. Currently watchlist shows cached values with no
-   way to refresh from the UI.
-
-5. **`src/poller.py` poller status** in Dashboard — `poller_status()` exists but
+2. **`src/poller.py` poller status** in Dashboard — `poller_status()` exists but
    `pages/1_Dashboard.py` doesn't call it yet. Wire it into the sidebar or dashboard.
 
-6. **Bug fix in `pages/3_Position.py` line ~257**: CC cost basis preview has a
-   division error. Replace:
-   `new_basis = summary.cost_basis - (contracts * 100 * price / 100)`
-   with:
-   `new_basis = summary.cost_basis - price`
-   (price is already per-share; the /100 double-divides)
+3. **Real-trade integration** — currently all trades go to TRADIER_SANDBOX or MANUAL.
+   Add TRADIER_LIVE source enum support with explicit opt-in guard rails.
+
+## What was recently completed
+
+✅ **`src/screener.py`** — equity screening with IV rank filter, earnings flags, ranking  
+✅ **Earnings calendar** — earnings_date column added to underlying, with migration system  
+✅ **IV refresh button** — "Refresh all IV" button wired in pages/2_Screener.py  
+✅ **Bug fix** — CC cost basis preview calculation in pages/3_Position.py
 
 ## Architecture rules (enforce strictly)
 
