@@ -64,37 +64,28 @@ tests/          pytest unit tests for src/ modules
 
 ## Component map
 
-```mermaid
-graph TD
-    UI[Streamlit pages]
-    SM[state_machine.py]
-    CB[cost_basis.py]
-    DB[(SQLite wheel.db)]
-    ALP[alpaca.py]
-    MKT[market_data.py]
-    SCR[screener.py]
-    AMCP[Alpaca MCP server]
-    AVMCP[Alpha Vantage MCP]
-
-    UI --> SM
-    UI --> SCR
-    UI --> CB
-    SM --> DB
-    CB --> DB
-    SCR --> MKT
-    ALP --> AMCP
-    MKT --> AVMCP
-    SM --> ALP
+```
+Streamlit pages (UI layer)
+    ↓
+state_machine.py (cycle transitions)
+cost_basis.py (P&L calculations)
+screener.py (equity screening)
+    ↓
+SQLite wheel.db (schema in db/schema.sql)
+    ↓
+Tradier API (via tradier.py)
+Alpha Vantage API (via market_data.py)
 ```
 
 ## Data flow: entering a trade
 
 1. User selects ticker in Streamlit screener
-2. `screener.py` fetches IV rank from `market_data.py`
+2. `screener.py` filters candidates (IV rank ≥ 50%, no active positions, earnings check)
 3. User confirms CSP parameters (strike, expiration, contracts)
 4. UI calls `state_machine.open_short_put()`
-5. `state_machine.py` validates inputs, creates `cycle` + `trade` rows, optionally calls `alpaca.py` to submit paper order
-6. Paper fill confirmed via Alpaca MCP → `trade.broker_order_id` populated
+5. `state_machine.py` validates inputs, creates `cycle` + `trade` rows
+6. Optional: calls `tradier.py` to submit paper order to TRADIER_SANDBOX
+7. Paper fill confirmed → `trade.broker_order_id` populated
 
 ## Data flow: roll
 
@@ -107,7 +98,7 @@ graph TD
 
 ## Data flow: assignment
 
-1. Alpaca MCP notifies assignment OR user enters manually
+1. Tradier MCP notifies assignment OR user enters manually
 2. UI calls `state_machine.record_assignment(cycle_id, fill_price)`
 3. State machine writes `BUY_STOCK / ASSIGNMENT` trade row
 4. `cycle.assignment_price` set to fill price
@@ -119,8 +110,9 @@ graph TD
 - **SQLite over Postgres**: single-user, local, no infra to manage. Migrate later if needed.
 - **VIRTUAL GENERATED cost_basis**: eliminates entire class of update bugs. Cannot be wrong.
 - **State machine as single module**: any code that bypasses it is a bug by definition.
-- **Paper-only Alpaca integration**: `ALPACA_LIVE` source enum value reserved but not wired. Requires explicit flag to enable.
-- **Manual entry path**: every Alpaca action has a manual equivalent so real trades are always recordable.
+- **Paper-only Tradier integration**: `TRADIER_LIVE` source enum value reserved but not wired. Requires explicit flag to enable.
+- **Manual entry path**: every Tradier action has a manual equivalent so real trades are always recordable.
+- **Screening as pure filtering**: screener is stateless, returns candidates based on current market data + earnings.
 
 ---
 
@@ -142,12 +134,19 @@ CREATE TABLE underlying (
     ticker          TEXT UNIQUE NOT NULL,
     notes           TEXT,                   -- why this ticker is Wheel-eligible
     iv_rank_cached  REAL,                   -- last fetched IVR (0-100)
-    iv_rank_updated DATETIME,
+    iv_pct_cached   REAL,                   -- % of days in past year IV was below current
+    iv_current      REAL,                   -- raw current IV (30-day)
+    iv_52w_high     REAL,
+    iv_52w_low      REAL,
+    iv_updated      DATETIME,
+    earnings_date   DATE,                   -- next earnings announcement (optional)
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
 `underlying_id = ticker` is intentional — avoids a join in every query and there is no ambiguity.
+
+**`earnings_date`** is optional. Used by screener to flag candidates with earnings within a configurable DTE window (default 7 days). Source: manual entry or Tradier earnings calendar API.
 
 ---
 
@@ -212,8 +211,10 @@ CREATE TABLE trade (
     net_credit      REAL NOT NULL,      -- contracts × 100 × price_per_share
     commission      REAL NOT NULL DEFAULT 0,
     filled_at       DATETIME NOT NULL,
-    source          TEXT NOT NULL CHECK(source IN ('ALPACA_PAPER','MANUAL')),
-    broker_order_id TEXT,               -- Alpaca order ID if applicable
+    source          TEXT NOT NULL CHECK(source IN ('TRADIER_SANDBOX','TRADIER_LIVE','MANUAL')),
+    broker_order_id TEXT,               -- Tradier order ID if applicable
+    fill_status     TEXT NOT NULL DEFAULT 'CONFIRMED'
+                    CHECK(fill_status IN ('PENDING','CONFIRMED','REJECTED')),
     notes           TEXT
 );
 ```
@@ -278,6 +279,12 @@ CREATE INDEX idx_trade_cycle    ON trade(cycle_id);
 CREATE INDEX idx_trade_filled   ON trade(filled_at);
 CREATE INDEX idx_cycle_ticker   ON cycle(underlying_id, state);
 ```
+
+## Migrations
+
+Schema changes are managed in `db/migrations/`. Each migration file is numbered and run idempotently on database initialization.
+
+- `001_add_earnings_date.sql` — Adds `earnings_date` column to `underlying` for earnings tracking.
 
 ---
 
@@ -473,12 +480,13 @@ This is a VIRTUAL GENERATED column in SQLite. It is never set directly.
 
 | Module | Owns | Does not own |
 |---|---|---|
-| `src/state_machine.py` | All cycle state transitions, trade writes | UI, market data |
+| `src/state_machine.py` | All cycle state transitions, trade writes | UI, market data, screening |
 | `src/cost_basis.py` | Cost basis validation, P&L helpers | State transitions |
-| `src/db.py` | DB connection, raw query helpers | Business logic |
-| `src/alpaca.py` | Alpaca MCP calls, order formatting | State decisions |
-| `src/market_data.py` | Alpha Vantage calls, IV rank fetch | Trade logic |
-| `src/screener.py` | Equity screening criteria, candidate ranking | Execution |
+| `src/db.py` | DB connection, raw query helpers, migrations | Business logic |
+| `src/tradier.py` | Tradier REST API calls, order formatting | State decisions |
+| `src/market_data.py` | IV rank fetch + computation, caching | Trade logic, screening |
+| `src/screener.py` | Equity screening criteria, candidate ranking | Execution, trade submission |
+| `src/poller.py` | Background fill confirmation thread | UI, order placement |
 | `pages/` | Streamlit UI only | Any computation |
 
 ## Naming
@@ -487,6 +495,7 @@ This is a VIRTUAL GENERATED column in SQLite. It is never set directly.
 - Functions that only read: `get_`, `fetch_`, `list_` prefix
 - State machine public API: verb-noun, e.g. `open_short_put`, `record_assignment`, `roll_position`
 - Enums match DB CHECK constraints exactly: use the string literals, not magic values
+- Screener functions: `get_screening_candidates()`, `has_earnings_soon()`, `get_all_watchlist()`
 
 ## Adding a new trade type
 
@@ -495,23 +504,26 @@ This is a VIRTUAL GENERATED column in SQLite. It is never set directly.
 3. Implement the transition function in `src/state_machine.py`
 4. Update `db/schema.sql` and `docs/data-model.md` in the same commit
 
-## Alpaca MCP calls
+## Tradier MCP calls
 
-- All Alpaca calls go through `src/alpaca.py` — no MCP calls in pages or state machine
-- Always check `cycle.source` before submitting — only `ALPACA_PAPER` cycles submit to Alpaca
-- Every Alpaca action has a manual fallback path (user enters fill manually if paper order fails)
+- All Tradier calls go through `src/tradier.py` — no MCP calls in pages or state machine
+- Always check `cycle.source` before submitting — only `TRADIER_SANDBOX` and `TRADIER_LIVE` cycles submit to Tradier
+- Every Tradier action has a manual fallback path (user enters fill manually if paper order fails)
 
 ## Testing expectations
 
 - `src/state_machine.py` must have unit tests for every valid transition and every invalid transition (should raise `InvalidTransitionError`)
 - `src/cost_basis.py` must have a test that walks the full worked example from `docs/cost-basis-rules.md` step by step
+- `src/screener.py` should have unit tests for candidate filtering logic
 - No Streamlit-dependent code in `src/` — pages are not unit tested
 
 ## DB migrations
 
 - Schema changes: update `db/schema.sql`, write a migration script in `db/migrations/`
+- Migration files are numbered sequentially: `001_add_earnings_date.sql`, `002_...sql`, etc.
+- Migrations are run idempotently on database initialization (handled by `src/db.py`)
 - Never ALTER a VIRTUAL GENERATED column — drop and recreate the table
-- Migration scripts are numbered sequentially: `001_initial.sql`, `002_add_lot_id.sql`, etc.
+- All migrations must be idempotent (safe to run multiple times)
 
 ---
 
@@ -519,7 +531,7 @@ This is a VIRTUAL GENERATED column in SQLite. It is never set directly.
 
 ## Schema (canonical DDL)
 
-```sql
+\`\`\`sql
 -- Wheel Trader schema
 -- Source of truth. Changes here must be reflected in docs/data-model.md.
 
@@ -533,6 +545,7 @@ CREATE TABLE IF NOT EXISTS underlying (
     iv_52w_high     REAL,
     iv_52w_low      REAL,
     iv_updated      DATETIME,
+    earnings_date   DATE,       -- next earnings announcement (optional)
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -621,4 +634,5 @@ SELECT
 FROM cycle c
 LEFT JOIN trade t ON t.cycle_id = c.cycle_id
 GROUP BY c.cycle_id;
-```
+\`\`\`
+
