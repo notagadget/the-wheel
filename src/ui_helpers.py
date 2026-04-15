@@ -23,9 +23,39 @@ def fmt_dollar(value) -> str:
     return f"${value:,.2f}"
 
 
+def fmt_pct(value) -> str:
+    """Format a number as a percentage string with two decimal places."""
+    if value is None:
+        return "—"
+    return f"{value:.2f}%"
+
+
 def state_badge(state: str) -> str:
     """Return a human-readable label for a cycle state."""
     return _STATE_LABELS.get(state, state)
+
+
+def trades_to_dataframe(trade_dicts: list) -> pd.DataFrame:
+    """
+    Convert a list of trade row dicts (from the trade table) to a display DataFrame.
+    Keeps trade_id as a column so callers can drop it if desired.
+    """
+    rows = []
+    for t in trade_dicts:
+        rows.append({
+            "trade_id":   t.get("trade_id"),
+            "Date":       (t.get("filled_at") or "")[:10] or "—",
+            "Type":       t.get("trade_type", "—"),
+            "Role":       t.get("leg_role", "—"),
+            "Strike":     fmt_dollar(t.get("strike")),
+            "Expiry":     t.get("expiration") or "—",
+            "Contracts":  t.get("contracts", "—"),
+            "Price/sh":   fmt_dollar(t.get("price_per_share")),
+            "Net credit": t.get("net_credit"),
+            "Commission": fmt_dollar(t.get("commission")),
+            "Source":     t.get("source", "—"),
+        })
+    return pd.DataFrame(rows)
 
 
 def cycles_to_dataframe(cycles) -> pd.DataFrame:
