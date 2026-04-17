@@ -14,13 +14,20 @@ def fresh_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db_module, "_initialized", False)
 
 
-def _seed(ticker: str, iv_rank: float = None, earnings_date: str = None):
+def _seed(
+    ticker: str,
+    iv_rank: float = None,
+    earnings_date: str = None,
+    wheel_eligible: int = 1,
+    strategy: str = "FUNDAMENTAL",
+):
     from src.db import get_conn
     with get_conn() as conn:
         conn.execute(
             "INSERT OR IGNORE INTO underlying "
-            "(underlying_id, ticker, iv_rank_cached, earnings_date) VALUES (?,?,?,?)",
-            (ticker, ticker, iv_rank, earnings_date),
+            "(underlying_id, ticker, iv_rank_cached, earnings_date, "
+            " wheel_eligible, eligible_strategy) VALUES (?,?,?,?,?,?)",
+            (ticker, ticker, iv_rank, earnings_date, wheel_eligible, strategy),
         )
 
 
@@ -140,6 +147,7 @@ def test_result_has_expected_keys():
     expected_keys = {
         "underlying_id", "ticker", "iv_rank_cached", "iv_pct_cached",
         "iv_current", "earnings_date", "notes", "iv_updated", "has_earnings_soon",
+        "eligible_strategy", "last_reviewed",
     }
     assert expected_keys.issubset(results[0].keys())
 
@@ -168,3 +176,19 @@ def test_watchlist_include_inactive_shows_all():
     _open_put("BUSY", iv_rank=80.0)
     results = screener.get_all_watchlist(include_inactive=True)
     assert any(r["ticker"] == "BUSY" for r in results)
+
+
+# ---------------------------------------------------------------------------
+# wheel_eligible pre-filter integration
+# ---------------------------------------------------------------------------
+
+def test_screener_excludes_ineligible_tickers():
+    """Ineligible tickers must not appear in screening results even with high IV rank."""
+    _seed("GOOD", iv_rank=80.0, wheel_eligible=1)
+    _seed("BAD",  iv_rank=80.0, wheel_eligible=0)
+
+    results = screener.get_screening_candidates(min_iv_rank=50.0)
+    tickers = {r["ticker"] for r in results}
+
+    assert "GOOD" in tickers
+    assert "BAD" not in tickers

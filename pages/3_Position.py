@@ -105,7 +105,7 @@ if trade_dicts:
     display_df = df.drop(columns=["trade_id"])
     st.dataframe(
         color_pnl_column(display_df, "Net credit"),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 else:
@@ -131,7 +131,7 @@ if rolls:
             "New expiry":   r["new_expiration"] or "—",
             "Net credit":   fmt_dollar(r["net_credit"]),
         })
-    st.dataframe(pd.DataFrame(roll_data), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(roll_data), width="stretch", hide_index=True)
 
 st.divider()
 

@@ -9,6 +9,7 @@
 | `src/db.py` | DB connection, raw query helpers, migrations | Business logic |
 | `src/tradier.py` | Tradier REST API calls, order formatting | State decisions |
 | `src/market_data.py` | IV rank fetch + computation, caching | Trade logic, screening |
+| `src/eligibility.py` | wheel_eligible flag, strategy assignment, quality gate | IV rank, trade execution, cycle state |
 | `src/screener.py` | Equity screening criteria, candidate ranking | Execution, trade submission |
 | `src/poller.py` | Background fill confirmation thread | UI, order placement |
 | `pages/` | Streamlit UI only | Any computation |

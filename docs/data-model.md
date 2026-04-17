@@ -10,23 +10,35 @@ Tickers being watched or actively wheeled. One row per ticker, ever.
 
 ```sql
 CREATE TABLE underlying (
-    underlying_id   TEXT PRIMARY KEY,       -- same as ticker, e.g. "RKLB"
-    ticker          TEXT UNIQUE NOT NULL,
-    notes           TEXT,                   -- why this ticker is Wheel-eligible
-    iv_rank_cached  REAL,                   -- last fetched IVR (0-100)
-    iv_pct_cached   REAL,                   -- % of days in past year IV was below current
-    iv_current      REAL,                   -- raw current IV (30-day)
-    iv_52w_high     REAL,
-    iv_52w_low      REAL,
-    iv_updated      DATETIME,
-    earnings_date   DATE,                   -- next earnings announcement (optional)
-    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+    underlying_id      TEXT PRIMARY KEY,       -- same as ticker, e.g. "RKLB"
+    ticker             TEXT UNIQUE NOT NULL,
+    notes              TEXT,                   -- general free-text notes
+    iv_rank_cached     REAL,                   -- last fetched IVR (0-100)
+    iv_pct_cached      REAL,                   -- % of days in past year IV was below current
+    iv_current         REAL,                   -- raw current IV (30-day)
+    iv_52w_high        REAL,
+    iv_52w_low         REAL,
+    iv_updated         DATETIME,
+    earnings_date      DATE,                   -- next earnings announcement (optional)
+    wheel_eligible     INTEGER NOT NULL DEFAULT 0,  -- 1 = cleared for wheel trading
+    eligible_strategy  TEXT CHECK(eligible_strategy IN (
+                           'FUNDAMENTAL', 'TECHNICAL', 'ETF_COMPONENT', 'VOL_PREMIUM'
+                       )),
+    quality_notes      TEXT,                   -- reason for most recent eligibility decision
+    last_reviewed      DATE,                   -- date eligibility was last set via eligibility.py
+    created_at         DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
 `underlying_id = ticker` is intentional — avoids a join in every query and there is no ambiguity.
 
 **`earnings_date`** is optional. Used by screener to flag candidates with earnings within a configurable DTE window (default 7 days). Source: manual entry or Tradier earnings calendar API.
+
+**`wheel_eligible`** is a hard quality gate set manually via `src/eligibility.py`. A ticker must have `wheel_eligible = 1` to appear in screening results. This is a separate signal from IV rank: eligibility answers "should I ever wheel this?", IV rank answers "should I wheel this right now?".
+
+**`eligible_strategy`** records which of the four strategy frameworks justified the eligibility decision: `FUNDAMENTAL`, `TECHNICAL`, `ETF_COMPONENT`, or `VOL_PREMIUM`. NULL when `wheel_eligible = 0`. See `src/eligibility.py` for strategy definitions.
+
+**`quality_notes`** and **`last_reviewed`** are set automatically by `update_eligibility()` in `src/eligibility.py` — do not update them directly.
 
 ---
 
@@ -165,3 +177,4 @@ CREATE INDEX idx_cycle_ticker   ON cycle(underlying_id, state);
 Schema changes are managed in `db/migrations/`. Each migration file is numbered and run idempotently on database initialization.
 
 - `001_add_earnings_date.sql` — Adds `earnings_date` column to `underlying` for earnings tracking.
+- `003_add_wheel_eligibility.sql` — Adds `wheel_eligible`, `eligible_strategy`, `quality_notes`, `last_reviewed` to `underlying`.

@@ -17,21 +17,44 @@ MIGRATIONS_DIR = Path(__file__).parent.parent / "db" / "migrations"
 _initialized = False
 
 
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(c["name"] == column for c in cols)
+
+
 def _run_migrations(conn: sqlite3.Connection) -> None:
-    """Execute all migration files in db/migrations/ in numeric order."""
+    """Execute all migration files in db/migrations/ in numeric order, statement by statement."""
     if not MIGRATIONS_DIR.exists():
         return
 
     migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
     for mig_file in migration_files:
-        try:
-            migration_sql = mig_file.read_text()
-            conn.executescript(migration_sql)
-        except sqlite3.OperationalError as e:
-            # Idempotent errors — column already exists, etc.
-            if any(x in str(e).lower() for x in ["already exists", "duplicate column"]):
+        migration_sql = mig_file.read_text()
+        statements = [s.strip() for s in migration_sql.split(";") if s.strip()]
+        for stmt in statements:
+            # Strip leading comment lines
+            lines = [l for l in stmt.splitlines() if not l.strip().startswith("--")]
+            stmt_clean = " ".join(lines).strip()
+            if not stmt_clean:
                 continue
-            raise
+            upper = stmt_clean.upper()
+            # Guard ALTER TABLE ... ADD COLUMN against duplicate columns
+            if "ALTER TABLE" in upper and "ADD COLUMN" in upper:
+                parts = stmt_clean.split()
+                uppers = [p.upper() for p in parts]
+                try:
+                    tbl = parts[uppers.index("TABLE") + 1]
+                    col = parts[uppers.index("COLUMN") + 1]
+                    if _column_exists(conn, tbl, col):
+                        continue
+                except (ValueError, IndexError):
+                    pass
+            try:
+                conn.execute(stmt_clean)
+            except sqlite3.OperationalError as e:
+                if any(x in str(e).lower() for x in ["already exists", "duplicate column"]):
+                    continue
+                raise
 
 
 def _init(conn: sqlite3.Connection) -> None:

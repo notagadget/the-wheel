@@ -42,18 +42,18 @@ def get_screening_candidates(
     Get ranked list of tickers suitable for wheel entry.
 
     Filters by:
-    - IV rank >= min_iv_rank (default 50% — elevated IV)
+    - wheel_eligible = 1 (hard quality gate, set via eligibility.py)
+    - IV rank >= min_iv_rank (default 50% — elevated IV timing signal)
     - No active cycles in SHORT_PUT or LONG_STOCK state
     - Optionally excludes tickers with earnings within window
 
     Returns list of dicts with keys:
     - underlying_id, ticker, iv_rank_cached, iv_current, earnings_date, notes,
-      active_cycles, has_earnings_soon
+      eligible_strategy, last_reviewed, active_cycles, has_earnings_soon
 
     Sorted by iv_rank descending (highest IV rank first).
     """
     with get_conn() as conn:
-        # Query underlying with active cycle count, filtered by IV rank
         rows = conn.execute("""
             SELECT
                 u.underlying_id,
@@ -64,11 +64,14 @@ def get_screening_candidates(
                 u.earnings_date,
                 u.notes,
                 u.iv_updated,
+                u.eligible_strategy,
+                u.last_reviewed,
                 COUNT(CASE WHEN c.state IN ('SHORT_PUT', 'LONG_STOCK')
                       THEN 1 END)  AS active_cycles
             FROM underlying u
             LEFT JOIN cycle c ON c.underlying_id = u.underlying_id
-            WHERE u.iv_rank_cached >= ? OR u.iv_rank_cached IS NULL
+            WHERE u.wheel_eligible = 1
+              AND (u.iv_rank_cached >= ? OR u.iv_rank_cached IS NULL)
             GROUP BY u.underlying_id
             ORDER BY u.iv_rank_cached DESC NULLS LAST, u.ticker
         """, (min_iv_rank,)).fetchall()
@@ -77,11 +80,9 @@ def get_screening_candidates(
     for row in rows:
         earnings_soon = has_earnings_soon(row["earnings_date"], exclude_earnings_window)
 
-        # Skip if has active put/stock position (already trading)
         if row["active_cycles"] > 0:
             continue
 
-        # Skip if earnings within window (unless user opts in)
         if earnings_soon:
             continue
 
@@ -94,6 +95,75 @@ def get_screening_candidates(
             "earnings_date": row["earnings_date"],
             "notes": row["notes"],
             "iv_updated": row["iv_updated"],
+            "eligible_strategy": row["eligible_strategy"],
+            "last_reviewed": row["last_reviewed"],
+            "has_earnings_soon": earnings_soon,
+        })
+
+    if max_results:
+        candidates = candidates[:max_results]
+
+    return candidates
+
+
+def get_screening_candidates_by_strategy(
+    strategy: str,
+    min_iv_rank: float = 40.0,
+    exclude_earnings_window: int = 30,
+    max_results: Optional[int] = None,
+) -> list[dict]:
+    """
+    Like get_screening_candidates() but filtered to a single strategy.
+
+    Uses a lower default min_iv_rank (40 vs 50) because strategy eligibility
+    already provides quality filtering.
+    Uses a longer default earnings window (30 days) appropriate for 30-45 DTE cycles.
+    """
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT
+                u.underlying_id,
+                u.ticker,
+                u.iv_rank_cached,
+                u.iv_pct_cached,
+                u.iv_current,
+                u.earnings_date,
+                u.notes,
+                u.iv_updated,
+                u.eligible_strategy,
+                u.last_reviewed,
+                COUNT(CASE WHEN c.state IN ('SHORT_PUT', 'LONG_STOCK')
+                      THEN 1 END)  AS active_cycles
+            FROM underlying u
+            LEFT JOIN cycle c ON c.underlying_id = u.underlying_id
+            WHERE u.wheel_eligible = 1
+              AND u.eligible_strategy = ?
+              AND (u.iv_rank_cached >= ? OR u.iv_rank_cached IS NULL)
+            GROUP BY u.underlying_id
+            ORDER BY u.iv_rank_cached DESC NULLS LAST, u.ticker
+        """, (strategy, min_iv_rank)).fetchall()
+
+    candidates = []
+    for row in rows:
+        earnings_soon = has_earnings_soon(row["earnings_date"], exclude_earnings_window)
+
+        if row["active_cycles"] > 0:
+            continue
+
+        if earnings_soon:
+            continue
+
+        candidates.append({
+            "underlying_id": row["underlying_id"],
+            "ticker": row["ticker"],
+            "iv_rank_cached": row["iv_rank_cached"],
+            "iv_pct_cached": row["iv_pct_cached"],
+            "iv_current": row["iv_current"],
+            "earnings_date": row["earnings_date"],
+            "notes": row["notes"],
+            "iv_updated": row["iv_updated"],
+            "eligible_strategy": row["eligible_strategy"],
+            "last_reviewed": row["last_reviewed"],
             "has_earnings_soon": earnings_soon,
         })
 

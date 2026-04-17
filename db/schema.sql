@@ -2,17 +2,23 @@
 -- Source of truth. Changes here must be reflected in docs/data-model.md.
 
 CREATE TABLE IF NOT EXISTS underlying (
-    underlying_id   TEXT PRIMARY KEY,
-    ticker          TEXT UNIQUE NOT NULL,
-    notes           TEXT,
-    iv_rank_cached  REAL,       -- (current - 52w_low) / (52w_high - 52w_low) * 100
-    iv_pct_cached   REAL,       -- % of days in past year IV was below current
-    iv_current      REAL,       -- raw current IV (30-day)
-    iv_52w_high     REAL,
-    iv_52w_low      REAL,
-    iv_updated      DATETIME,
-    earnings_date   DATE,       -- next earnings announcement (optional)
-    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+    underlying_id      TEXT PRIMARY KEY,
+    ticker             TEXT UNIQUE NOT NULL,
+    notes              TEXT,
+    iv_rank_cached     REAL,       -- (current - 52w_low) / (52w_high - 52w_low) * 100
+    iv_pct_cached      REAL,       -- % of days in past year IV was below current
+    iv_current         REAL,       -- raw current IV (30-day)
+    iv_52w_high        REAL,
+    iv_52w_low         REAL,
+    iv_updated         DATETIME,
+    earnings_date      DATE,       -- next earnings announcement (optional)
+    wheel_eligible     INTEGER NOT NULL DEFAULT 0,  -- hard gate: 1 = eligible to wheel
+    eligible_strategy  TEXT CHECK(eligible_strategy IN (
+                           'FUNDAMENTAL', 'TECHNICAL', 'ETF_COMPONENT', 'VOL_PREMIUM'
+                       )),
+    quality_notes      TEXT,       -- reason for eligibility decision
+    last_reviewed      DATE,       -- date eligibility was last set
+    created_at         DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS cycle (

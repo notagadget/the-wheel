@@ -5,9 +5,10 @@
 ```
 Streamlit pages (UI layer)
     ↓
+eligibility.py (wheel_eligible gate — upstream of screening)
+screener.py (IV rank + timing filters)
 state_machine.py (cycle transitions)
 cost_basis.py (P&L calculations)
-screener.py (equity screening)
     ↓
 SQLite wheel.db (schema in db/schema.sql)
     ↓
@@ -51,3 +52,4 @@ Alpha Vantage API (via market_data.py)
 - **Paper-only Tradier integration**: `TRADIER_LIVE` source enum value reserved but not wired. Requires explicit flag to enable.
 - **Manual entry path**: every Tradier action has a manual equivalent so real trades are always recordable.
 - **Screening as pure filtering**: screener is stateless, returns candidates based on current market data + earnings.
+- **Two-signal screening**: `wheel_eligible` (fundamental/technical quality, set manually) is a hard gate evaluated before IV rank. IV rank is a timing signal only, not a quality signal.

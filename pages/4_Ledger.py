@@ -121,7 +121,7 @@ else:
 
     st.dataframe(
         color_pnl_column(display_df, "Net credit"),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
     st.caption(f"Showing up to 500 most recent trades. Adjust filters to narrow.")

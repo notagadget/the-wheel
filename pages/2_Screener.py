@@ -57,7 +57,7 @@ if underlyings:
             "Notes":        u["notes"] or "—",
         })
     import pandas as pd
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     st.caption("IV Rank sourced from Alpha Vantage (cached). Refresh via market_data.py.")
 else:
     st.info("No tickers in watchlist yet. Add one below.")

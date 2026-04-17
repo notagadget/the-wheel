@@ -40,7 +40,7 @@ if pending:
     with st.expander("View pending fills"):
         st.dataframe(
             pd.DataFrame(pending),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -107,7 +107,7 @@ else:
 
     st.dataframe(
         color_pnl_column(display_df, "P&L to date"),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -145,7 +145,7 @@ with st.expander("Closed cycles"):
             })
         st.dataframe(
             pd.DataFrame(closed_data),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
     else:
