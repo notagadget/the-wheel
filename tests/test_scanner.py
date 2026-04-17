@@ -206,23 +206,26 @@ def test_get_sma_empty(mock_request):
 # scan_ticker tests
 # ---------------------------------------------------------------------------
 
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
 @patch("src.massive.get_daily_bars")
 @patch("src.massive.get_sma")
 @patch("src.massive.compute_rsi")
 @patch("src.massive.compute_avg_volume")
 @patch("src.massive.get_ticker_details")
-@patch("src.massive.get_prev_close")
 def test_scan_ticker_technical_all_pass(
-    mock_prev_close,
     mock_ticker_details,
     mock_avg_volume,
     mock_rsi,
     mock_sma,
     mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
 ):
     """scan_ticker TECHNICAL strategy with all criteria passing."""
-    mock_prev_close.return_value = {"close": 50.0}
+    mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test Corp", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
     mock_daily_bars.return_value = [{"close": float(50 + i)} for i in range(16)]
     mock_avg_volume.return_value = 500_000
     mock_sma.return_value = 45.0  # Price 50 > SMA 45
@@ -238,23 +241,26 @@ def test_scan_ticker_technical_all_pass(
     assert result["market_cap_b"] == 5.0
 
 
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
 @patch("src.massive.get_daily_bars")
 @patch("src.massive.get_sma")
 @patch("src.massive.compute_rsi")
 @patch("src.massive.compute_avg_volume")
 @patch("src.massive.get_ticker_details")
-@patch("src.massive.get_prev_close")
 def test_scan_ticker_price_below_min(
-    mock_prev_close,
     mock_ticker_details,
     mock_avg_volume,
     mock_rsi,
     mock_sma,
     mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
 ):
     """scan_ticker fails when price is below minimum."""
-    mock_prev_close.return_value = {"close": 5.0}  # Below min_price 10.0
+    mock_quote.return_value = {"last": 5.0}  # Below min_price 10.0
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 5.0, "volume": 500_000}]
     mock_daily_bars.return_value = [{"close": 5.0}]
     mock_avg_volume.return_value = 500_000
     mock_sma.return_value = 4.0
@@ -266,23 +272,26 @@ def test_scan_ticker_price_below_min(
     assert result["criteria"]["min_price"]["passed"] is False
 
 
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
 @patch("src.massive.get_daily_bars")
 @patch("src.massive.get_sma")
 @patch("src.massive.compute_rsi")
 @patch("src.massive.compute_avg_volume")
 @patch("src.massive.get_ticker_details")
-@patch("src.massive.get_prev_close")
 def test_scan_ticker_price_above_max(
-    mock_prev_close,
     mock_ticker_details,
     mock_avg_volume,
     mock_rsi,
     mock_sma,
     mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
 ):
     """scan_ticker fails when price is above maximum."""
-    mock_prev_close.return_value = {"close": 200.0}  # Above max_price 150.0
+    mock_quote.return_value = {"last": 200.0}  # Above max_price 150.0
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 200.0, "volume": 500_000}]
     mock_daily_bars.return_value = [{"close": 200.0}]
     mock_avg_volume.return_value = 500_000
     mock_sma.return_value = 190.0
@@ -294,23 +303,26 @@ def test_scan_ticker_price_above_max(
     assert result["criteria"]["max_price"]["passed"] is False
 
 
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
 @patch("src.massive.get_daily_bars")
 @patch("src.massive.get_sma")
 @patch("src.massive.compute_rsi")
 @patch("src.massive.compute_avg_volume")
 @patch("src.massive.get_ticker_details")
-@patch("src.massive.get_prev_close")
 def test_scan_ticker_below_200dma(
-    mock_prev_close,
     mock_ticker_details,
     mock_avg_volume,
     mock_rsi,
     mock_sma,
     mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
 ):
     """scan_ticker TECHNICAL fails when price below 200-day SMA."""
-    mock_prev_close.return_value = {"close": 50.0}
+    mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
     mock_daily_bars.return_value = [{"close": 50.0}]
     mock_avg_volume.return_value = 500_000
     mock_sma.return_value = 55.0  # Price 50 < SMA 55
@@ -322,23 +334,26 @@ def test_scan_ticker_below_200dma(
     assert result["criteria"]["above_200dma"]["passed"] is False
 
 
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
 @patch("src.massive.get_daily_bars")
 @patch("src.massive.get_sma")
 @patch("src.massive.compute_rsi")
 @patch("src.massive.compute_avg_volume")
 @patch("src.massive.get_ticker_details")
-@patch("src.massive.get_prev_close")
 def test_scan_ticker_fundamental_manual_criteria(
-    mock_prev_close,
     mock_ticker_details,
     mock_avg_volume,
     mock_rsi,
     mock_sma,
     mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
 ):
     """scan_ticker FUNDAMENTAL strategy has manual criteria (passed=None)."""
-    mock_prev_close.return_value = {"close": 50.0}
+    mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
     mock_daily_bars.return_value = [{"close": 50.0}]
     mock_avg_volume.return_value = 500_000
 
@@ -349,25 +364,34 @@ def test_scan_ticker_fundamental_manual_criteria(
     assert result["criteria"]["max_debt_equity"]["passed"] is None
 
 
+@patch("src.tradier.get_historical_iv")
+@patch("src.market_data.get_current_iv")
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
 @patch("src.massive.get_daily_bars")
 @patch("src.massive.get_sma")
 @patch("src.massive.compute_rsi")
 @patch("src.massive.compute_avg_volume")
 @patch("src.massive.get_ticker_details")
-@patch("src.massive.get_prev_close")
 def test_scan_ticker_vol_premium_manual_criteria(
-    mock_prev_close,
     mock_ticker_details,
     mock_avg_volume,
     mock_rsi,
     mock_sma,
     mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
+    mock_current_iv,
+    mock_historical_iv,
 ):
     """scan_ticker VOL_PREMIUM strategy has manual IV criteria."""
-    mock_prev_close.return_value = {"close": 50.0}
+    mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
     mock_daily_bars.return_value = [{"close": 50.0}]
     mock_avg_volume.return_value = 500_000
+    mock_current_iv.return_value = None
+    mock_historical_iv.return_value = None
 
     result = scanner.scan_ticker("AAPL", "VOL_PREMIUM")
 
@@ -376,23 +400,26 @@ def test_scan_ticker_vol_premium_manual_criteria(
     assert result["criteria"]["min_iv_rank"]["passed"] is None
 
 
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
 @patch("src.massive.get_daily_bars")
 @patch("src.massive.get_sma")
 @patch("src.massive.compute_rsi")
 @patch("src.massive.compute_avg_volume")
 @patch("src.massive.get_ticker_details")
-@patch("src.massive.get_prev_close")
 def test_scan_ticker_etf_component_manual_criteria(
-    mock_prev_close,
     mock_ticker_details,
     mock_avg_volume,
     mock_rsi,
     mock_sma,
     mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
 ):
     """scan_ticker ETF_COMPONENT strategy has manual institutional ownership criteria."""
-    mock_prev_close.return_value = {"close": 50.0}
+    mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 1_000_000}]
     mock_daily_bars.return_value = [{"close": 50.0}]
     mock_avg_volume.return_value = 1_000_000
 
@@ -402,10 +429,11 @@ def test_scan_ticker_etf_component_manual_criteria(
     assert "13F filings" in result["criteria"]["min_institutional_ownership_pct"]["note"]
 
 
-@patch("src.massive.get_prev_close")
-def test_scan_ticker_massive_error(mock_prev_close):
-    """scan_ticker returns error dict on MassiveError."""
-    mock_prev_close.side_effect = massive.MassiveError("Connection failed")
+@patch("src.tradier.get_quote")
+def test_scan_ticker_massive_error(mock_quote):
+    """scan_ticker returns error dict on TradierError."""
+    from src.tradier import TradierError
+    mock_quote.side_effect = TradierError("Connection failed")
 
     result = scanner.scan_ticker("AAPL", "TECHNICAL")
 

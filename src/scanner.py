@@ -2,13 +2,62 @@
 scanner.py — Evaluates tickers against wheel strategy criteria.
 
 Pure screening logic, no DB writes. Returns criterion results as dicts.
+Uses Tradier for quotes and price history; Massive for company info only.
 """
 
 import time
 from typing import Callable, Optional
+from functools import lru_cache
+from datetime import date, timedelta
 
 from src.eligibility import STRATEGIES
-from src import massive
+from src import tradier, massive
+
+
+def _format_si(value: float) -> str:
+    """Format a number using SI units (K, M, B)."""
+    if value is None:
+        return "—"
+    if value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.1f}B"
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.1f}M"
+    if value >= 1_000:
+        return f"{value / 1_000:.1f}K"
+    return f"{value:.0f}"
+
+
+@lru_cache(maxsize=256)
+def _get_daily_bars_tradier(symbol: str, days: int) -> list[dict]:
+    """Fetch daily bars from Tradier (cheaper than Massive)."""
+    to_date = date.today().isoformat()
+    from_date = (date.today() - timedelta(days=days)).isoformat()
+
+    try:
+        resp = tradier._get("/v1/markets/history", {
+            "symbol": symbol,
+            "interval": "daily",
+            "start": from_date,
+            "end": to_date,
+        })
+    except Exception:
+        return []
+
+    history = resp.get("history", {}).get("day", [])
+    if isinstance(history, dict):
+        history = [history]
+
+    return [
+        {
+            "date": bar.get("date"),
+            "open": float(bar.get("open")) if bar.get("open") else None,
+            "high": float(bar.get("high")) if bar.get("high") else None,
+            "low": float(bar.get("low")) if bar.get("low") else None,
+            "close": float(bar.get("close")) if bar.get("close") else None,
+            "volume": float(bar.get("volume")) if bar.get("volume") else None,
+        }
+        for bar in history
+    ]
 
 
 def scan_ticker(symbol: str, strategy: str) -> dict:
@@ -30,9 +79,13 @@ def scan_ticker(symbol: str, strategy: str) -> dict:
 
     # Fetch data upfront — if basic data fails, return error
     try:
-        prev_close_data = massive.get_prev_close(symbol)
+        # Use Tradier for quote (faster, included in subscription)
+        quote = tradier.get_quote(symbol)
+        price = quote.get("last")
+
+        # Use Massive only for company details (name, market cap)
         ticker_details = massive.get_ticker_details(symbol)
-    except massive.MassiveError as e:
+    except (tradier.TradierError, massive.MassiveError) as e:
         return {
             "symbol": symbol,
             "strategy": strategy,
@@ -44,7 +97,6 @@ def scan_ticker(symbol: str, strategy: str) -> dict:
             "market_cap_b": None,
         }
 
-    price = prev_close_data.get("close")
     market_cap_b = ticker_details.get("market_cap_b")
     name = ticker_details.get("name")
 
@@ -71,7 +123,7 @@ def scan_ticker(symbol: str, strategy: str) -> dict:
     }
 
     # Compute min_avg_volume (45 calendar days ≈ 30 trading days)
-    daily_bars = massive.get_daily_bars(symbol, days=45)
+    daily_bars = _get_daily_bars_tradier(symbol, days=45)
     avg_volume = massive.compute_avg_volume(daily_bars)
     criteria["min_avg_volume"] = {
         "passed": avg_volume >= strat_config["min_avg_volume"] if avg_volume else None,
@@ -82,25 +134,24 @@ def scan_ticker(symbol: str, strategy: str) -> dict:
 
     # Strategy-specific criteria
     if strategy == "TECHNICAL":
-        # above_200dma
+        # Get 200-day SMA
         sma_200 = massive.get_sma(symbol, window=200)
         criteria["above_200dma"] = {
-            "passed": price > sma_200 if (price and sma_200) else None,
-            "value": {"price": price, "sma_200": sma_200},
+            "passed": price > sma_200 if price and sma_200 else None,
+            "value": sma_200,
             "threshold": "price > 200-day SMA",
-            "note": "",
+            "note": f"Current SMA: ${sma_200:.2f}" if sma_200 else "Unable to fetch SMA",
         }
 
-        # rsi
-        bars_for_rsi = massive.get_daily_bars(symbol, days=60)
-        rsi = massive.compute_rsi(bars_for_rsi, period=14)
+        # Compute RSI from daily bars
         rsi_min = strat_config.get("rsi_min", 30.0)
-        rsi_max = strat_config.get("rsi_max", 70.0)
+        daily_bars_rsi = massive.get_daily_bars(symbol, days=30)
+        rsi = massive.compute_rsi(daily_bars_rsi, period=14) if daily_bars_rsi else None
         criteria["rsi"] = {
-            "passed": rsi_min <= rsi <= rsi_max if rsi is not None else None,
+            "passed": rsi >= rsi_min if rsi else None,
             "value": rsi,
-            "threshold": f"{rsi_min}–{rsi_max}",
-            "note": "",
+            "threshold": rsi_min,
+            "note": f"RSI(14): {rsi:.1f}" if rsi else "Unable to compute RSI",
         }
 
     elif strategy == "FUNDAMENTAL":
@@ -126,17 +177,63 @@ def scan_ticker(symbol: str, strategy: str) -> dict:
         }
 
     elif strategy == "VOL_PREMIUM":
+        # Compute IV/HV ratio: current IV ÷ current (realized) HV
+        # Note: get_current_iv returns decimal (0.35), get_historical_iv returns % (35.0)
+        # Convert current IV to percentage for consistent units
+        min_iv_hv = strat_config.get("min_iv_hv_ratio", 1.2)
+        iv_hv_ratio = None
+        note = ""
+        current_iv = None
+        current_hv = None
+        hv_series = None
+        try:
+            from src.market_data import get_current_iv
+            current_iv = get_current_iv(symbol)
+            if current_iv:
+                current_iv_pct = current_iv * 100  # convert decimal to percentage
+                hv_series = tradier.get_historical_iv(symbol, days=365)
+                if hv_series:
+                    current_hv = hv_series[-1]["iv"]  # most recent HV (already in %)
+                    if current_hv and current_hv > 0:
+                        iv_hv_ratio = round(current_iv_pct / current_hv, 2)
+        except Exception as e:
+            note = f"Error: {str(e)}"
+
+        if iv_hv_ratio:
+            note = f"IV: {current_iv_pct:.2f}%, HV: {current_hv:.2f}%"
+        elif not note:
+            note = "Unable to fetch IV/HV data from Tradier"
+
         criteria["min_iv_hv_ratio"] = {
-            "passed": None,
-            "value": None,
-            "threshold": strat_config.get("min_iv_hv_ratio", 1.2),
-            "note": "Sourced from Tradier — check iv_rank_cached after adding to watchlist.",
+            "passed": iv_hv_ratio >= min_iv_hv if iv_hv_ratio else None,
+            "value": iv_hv_ratio,
+            "threshold": min_iv_hv,
+            "note": note,
         }
+        # Compute IV rank: (current_iv - 52w_low) / (52w_high - 52w_low) * 100
+        min_iv_rank = strat_config.get("min_iv_rank", 40.0)
+        iv_rank = None
+        iv_rank_note = ""
+        if current_iv and hv_series:
+            try:
+                from src.market_data import compute_iv_metrics
+                current_iv_pct = current_iv * 100  # convert decimal to percentage
+                metrics = compute_iv_metrics(hv_series, current_iv_pct)
+                iv_rank = metrics.get("iv_rank")
+                iv_52w_high = metrics.get("iv_52w_high")
+                iv_52w_low = metrics.get("iv_52w_low")
+                if iv_rank is not None:
+                    iv_rank_note = f"IV rank: {iv_rank:.1f}% (52w: {iv_52w_low:.2f}–{iv_52w_high:.2f})"
+            except Exception as e:
+                iv_rank_note = f"Error: {str(e)}"
+        else:
+            iv_rank_note = "Unable to fetch IV history from Tradier"
+
         criteria["min_iv_rank"] = {
-            "passed": None,
-            "value": None,
-            "threshold": strat_config.get("min_iv_rank", 40.0),
-            "note": "Sourced from Tradier — check iv_rank_cached after adding to watchlist.",
+            "passed": iv_rank >= min_iv_rank if iv_rank is not None else None,
+            "value": iv_rank,
+            "threshold": min_iv_rank,
+            "note": iv_rank_note,
         }
 
     # passes_all: True only if every criterion where passed is not None is True
@@ -187,7 +284,7 @@ def scan_universe(
             # Unknown strategy — should not happen if called correctly
             raise
 
-        time.sleep(0.25)  # Rate limit
+        time.sleep(1.0)  # Rate limit (Tradier: 250 req/hr ≈ 4 req/sec)
 
     # Sort: passes_all=True first, then by passed count desc, errors last
     def sort_key(r):
