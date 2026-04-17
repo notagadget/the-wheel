@@ -165,7 +165,7 @@ if state == "SHORT_PUT":
     with st.expander("Record assignment"):
         with st.form("assignment"):
             fill_price = st.number_input("Fill price ($/sh)", min_value=0.01, step=0.01, format="%.2f")
-            src = st.radio("Source", ["MANUAL", "ALPACA_PAPER"], horizontal=True)
+            src = st.radio("Source", ["MANUAL", "TRADIER_SANDBOX"], horizontal=True)
             commission = st.number_input("Commission", min_value=0.0, value=0.0, step=0.01)
             if st.form_submit_button("Record assignment", type="primary"):
                 try:
@@ -192,7 +192,7 @@ if state == "SHORT_PUT":
             with col4:
                 new_exp = st.date_input("New expiration", min_value=date.today())
             contracts = st.number_input("Contracts", min_value=1, value=1)
-            src = st.radio("Source", ["MANUAL", "ALPACA_PAPER"], horizontal=True, key="roll_src")
+            src = st.radio("Source", ["MANUAL", "TRADIER_SANDBOX"], horizontal=True, key="roll_src")
             if close_price and open_price:
                 net = (open_price - close_price) * contracts * 100
                 st.caption(f"Net roll: **{fmt_dollar(net)}**")
@@ -216,7 +216,7 @@ if state == "SHORT_PUT":
     with st.expander("Close early (buy to close)"):
         with st.form("close_put"):
             price = st.number_input("Close price (debit/sh)", min_value=0.01, step=0.01, format="%.2f")
-            src = st.radio("Source", ["MANUAL", "ALPACA_PAPER"], horizontal=True, key="close_src")
+            src = st.radio("Source", ["MANUAL", "TRADIER_SANDBOX"], horizontal=True, key="close_src")
             commission = st.number_input("Commission", min_value=0.0, value=0.0, step=0.01)
             if st.form_submit_button("Close position", type="primary"):
                 try:
@@ -254,7 +254,7 @@ elif state == "LONG_STOCK":
             with col2:
                 expiration = st.date_input("Expiration", min_value=date.today())
                 price = st.number_input("Premium (credit/sh)", min_value=0.01, step=0.01, format="%.2f")
-            src = st.radio("Source", ["MANUAL", "ALPACA_PAPER"], horizontal=True)
+            src = st.radio("Source", ["MANUAL", "TRADIER_SANDBOX"], horizontal=True)
             commission = st.number_input("Commission", min_value=0.0, value=0.0, step=0.01)
             if summary.cost_basis and strike and price:
                 new_basis = summary.cost_basis - price
@@ -281,7 +281,7 @@ elif state == "SHORT_CALL":
     with st.expander("Record called away"):
         with st.form("called_away"):
             fill_price = st.number_input("Fill price ($/sh)", min_value=0.01, step=0.01, format="%.2f")
-            src = st.radio("Source", ["MANUAL", "ALPACA_PAPER"], horizontal=True)
+            src = st.radio("Source", ["MANUAL", "TRADIER_SANDBOX"], horizontal=True)
             commission = st.number_input("Commission", min_value=0.0, value=0.0, step=0.01)
             if summary.cost_basis and fill_price:
                 est_pnl = (fill_price - summary.cost_basis) * (summary.shares_held or 100)
@@ -310,7 +310,7 @@ elif state == "SHORT_CALL":
             with col4:
                 new_exp = st.date_input("New expiration", min_value=date.today())
             contracts = st.number_input("Contracts", min_value=1, value=1)
-            src = st.radio("Source", ["MANUAL", "ALPACA_PAPER"], horizontal=True, key="roll_call_src")
+            src = st.radio("Source", ["MANUAL", "TRADIER_SANDBOX"], horizontal=True, key="roll_call_src")
             if close_price and open_price:
                 net = (open_price - close_price) * contracts * 100
                 st.caption(f"Net roll: **{fmt_dollar(net)}**")
@@ -344,7 +344,7 @@ elif state == "SHORT_CALL":
     with st.expander("Close early (buy to close)"):
         with st.form("close_call"):
             price = st.number_input("Close price (debit/sh)", min_value=0.01, step=0.01, format="%.2f")
-            src = st.radio("Source", ["MANUAL", "ALPACA_PAPER"], horizontal=True, key="close_call_src")
+            src = st.radio("Source", ["MANUAL", "TRADIER_SANDBOX"], horizontal=True, key="close_call_src")
             commission = st.number_input("Commission", min_value=0.0, value=0.0, step=0.01)
             if st.form_submit_button("Close position", type="primary"):
                 try:

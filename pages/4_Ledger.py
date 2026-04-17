@@ -29,8 +29,8 @@ with st.expander("Filters", expanded=True):
         selected_tickers = st.multiselect("Ticker", tickers)
     with col2:
         selected_sources = st.multiselect(
-            "Source", ["ALPACA_PAPER", "MANUAL"],
-            default=["ALPACA_PAPER", "MANUAL"]
+            "Source", ["TRADIER_SANDBOX", "TRADIER_LIVE", "MANUAL"],
+            default=["TRADIER_SANDBOX", "TRADIER_LIVE", "MANUAL"]
         )
     with col3:
         selected_statuses = st.multiselect(

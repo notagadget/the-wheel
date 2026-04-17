@@ -1,0 +1,170 @@
+"""Tests for src/screener.py — equity screening logic."""
+
+import pytest
+from datetime import date, timedelta
+
+import src.db as db_module
+from src import screener, state_machine as sm
+
+
+@pytest.fixture(autouse=True)
+def fresh_db(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setattr(db_module, "DB_PATH", db_path)
+    monkeypatch.setattr(db_module, "_initialized", False)
+
+
+def _seed(ticker: str, iv_rank: float = None, earnings_date: str = None):
+    from src.db import get_conn
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO underlying "
+            "(underlying_id, ticker, iv_rank_cached, earnings_date) VALUES (?,?,?,?)",
+            (ticker, ticker, iv_rank, earnings_date),
+        )
+
+
+def _open_put(ticker: str, iv_rank: float = 80.0) -> str:
+    _seed(ticker, iv_rank)
+    result = sm.open_short_put(
+        underlying_id=ticker, strike=10.0, expiration="2099-12-19",
+        contracts=1, price_per_share=0.50, source="MANUAL",
+    )
+    return result["cycle_id"]
+
+
+def _open_long_stock(ticker: str, iv_rank: float = 80.0) -> str:
+    cycle_id = _open_put(ticker, iv_rank)
+    sm.record_assignment(cycle_id=cycle_id, fill_price=10.0, source="MANUAL")
+    return cycle_id
+
+
+# ---------------------------------------------------------------------------
+# has_earnings_soon
+# ---------------------------------------------------------------------------
+
+def test_has_earnings_soon_none():
+    assert screener.has_earnings_soon(None) is False
+
+
+def test_has_earnings_soon_today():
+    assert screener.has_earnings_soon(date.today().isoformat()) is True
+
+
+def test_has_earnings_soon_within_window():
+    soon = (date.today() + timedelta(days=5)).isoformat()
+    assert screener.has_earnings_soon(soon, dte_window=7) is True
+
+
+def test_has_earnings_soon_at_window_boundary_is_excluded():
+    # window is [today, today+dte_window) — the boundary day itself is excluded
+    boundary = (date.today() + timedelta(days=7)).isoformat()
+    assert screener.has_earnings_soon(boundary, dte_window=7) is False
+
+
+def test_has_earnings_soon_past_date():
+    past = (date.today() - timedelta(days=1)).isoformat()
+    assert screener.has_earnings_soon(past) is False
+
+
+def test_has_earnings_soon_invalid_format():
+    assert screener.has_earnings_soon("not-a-date") is False
+
+
+# ---------------------------------------------------------------------------
+# get_screening_candidates
+# ---------------------------------------------------------------------------
+
+def test_filters_by_min_iv_rank():
+    _seed("HIGH", iv_rank=75.0)
+    _seed("LOW",  iv_rank=30.0)
+    results = screener.get_screening_candidates(min_iv_rank=50.0)
+    tickers = {r["ticker"] for r in results}
+    assert "HIGH" in tickers
+    assert "LOW" not in tickers
+
+
+def test_excludes_tickers_with_short_put():
+    _open_put("BUSY", iv_rank=80.0)
+    results = screener.get_screening_candidates(min_iv_rank=50.0)
+    assert not any(r["ticker"] == "BUSY" for r in results)
+
+
+def test_excludes_tickers_with_long_stock():
+    _open_long_stock("HELD", iv_rank=80.0)
+    results = screener.get_screening_candidates(min_iv_rank=50.0)
+    assert not any(r["ticker"] == "HELD" for r in results)
+
+
+def test_excludes_earnings_within_window():
+    soon = (date.today() + timedelta(days=3)).isoformat()
+    _seed("EARN", iv_rank=80.0, earnings_date=soon)
+    results = screener.get_screening_candidates(min_iv_rank=50.0, exclude_earnings_window=7)
+    assert not any(r["ticker"] == "EARN" for r in results)
+
+
+def test_does_not_exclude_earnings_outside_window():
+    far = (date.today() + timedelta(days=30)).isoformat()
+    _seed("SAFE", iv_rank=80.0, earnings_date=far)
+    results = screener.get_screening_candidates(min_iv_rank=50.0, exclude_earnings_window=7)
+    assert any(r["ticker"] == "SAFE" for r in results)
+
+
+def test_sorted_by_iv_rank_descending():
+    _seed("A", iv_rank=60.0)
+    _seed("B", iv_rank=90.0)
+    _seed("C", iv_rank=75.0)
+    results = screener.get_screening_candidates(min_iv_rank=50.0)
+    iv_ranks = [r["iv_rank_cached"] for r in results]
+    assert iv_ranks == sorted(iv_ranks, reverse=True)
+
+
+def test_max_results_limit():
+    for i in range(5):
+        _seed(f"TK{i}", iv_rank=float(60 + i))
+    results = screener.get_screening_candidates(min_iv_rank=50.0, max_results=3)
+    assert len(results) == 3
+
+
+def test_includes_null_iv_rank_tickers():
+    """Tickers with no IV data yet (NULL) should still appear."""
+    _seed("FRESH", iv_rank=None)
+    results = screener.get_screening_candidates(min_iv_rank=50.0)
+    assert any(r["ticker"] == "FRESH" for r in results)
+
+
+def test_result_has_expected_keys():
+    _seed("RKLB", iv_rank=70.0)
+    results = screener.get_screening_candidates(min_iv_rank=50.0)
+    assert len(results) == 1
+    expected_keys = {
+        "underlying_id", "ticker", "iv_rank_cached", "iv_pct_cached",
+        "iv_current", "earnings_date", "notes", "iv_updated", "has_earnings_soon",
+    }
+    assert expected_keys.issubset(results[0].keys())
+
+
+# ---------------------------------------------------------------------------
+# get_all_watchlist
+# ---------------------------------------------------------------------------
+
+def test_watchlist_returns_all_tickers():
+    _seed("A", iv_rank=70.0)
+    _seed("B", iv_rank=40.0)
+    results = screener.get_all_watchlist(include_inactive=True)
+    assert {r["ticker"] for r in results} == {"A", "B"}
+
+
+def test_watchlist_excludes_active_by_default():
+    _seed("FREE", iv_rank=70.0)
+    _open_put("BUSY", iv_rank=80.0)
+    results = screener.get_all_watchlist(include_inactive=False)
+    tickers = {r["ticker"] for r in results}
+    assert "FREE" in tickers
+    assert "BUSY" not in tickers
+
+
+def test_watchlist_include_inactive_shows_all():
+    _open_put("BUSY", iv_rank=80.0)
+    results = screener.get_all_watchlist(include_inactive=True)
+    assert any(r["ticker"] == "BUSY" for r in results)

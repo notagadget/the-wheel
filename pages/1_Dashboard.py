@@ -4,7 +4,7 @@
 Shows:
 - Aggregate P&L (realized + unrealized)
 - Active positions table with cost basis and state
-- Pending fills alert (ALPACA_PAPER trades with fill_status=PENDING)
+- Pending fills alert (TRADIER_SANDBOX trades with fill_status=PENDING)
 - Quick-link to drill into any position
 """
 

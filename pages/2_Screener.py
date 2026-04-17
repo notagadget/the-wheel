@@ -107,7 +107,7 @@ with st.form("open_csp"):
         price_per_share = st.number_input(
             "Premium (per share)", min_value=0.01, step=0.01, format="%.2f"
         )
-        source = st.radio("Source", ["MANUAL", "ALPACA_PAPER"], horizontal=True)
+        source = st.radio("Source", ["MANUAL", "TRADIER_SANDBOX"], horizontal=True)
         commission = st.number_input("Commission ($)", min_value=0.0, value=0.0, step=0.01)
 
     # Preview before submit

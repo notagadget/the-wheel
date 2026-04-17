@@ -1,0 +1,20 @@
+# Secrets — never commit
+.streamlit/secrets.toml
+
+# Database
+db/wheel.db
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+
+# Env
+.env
