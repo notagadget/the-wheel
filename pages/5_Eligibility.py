@@ -10,6 +10,7 @@ from src.eligibility import (
 from src.scanner import scan_ticker, scan_universe
 from src.massive import MassiveAuthError
 from src.db import get_conn
+from src.ui_helpers import format_si
 
 st.title("Wheel Eligibility")
 
@@ -248,12 +249,15 @@ def _render_scan_result(result: dict, strategy: str):
             if isinstance(value, dict):
                 value_str = ", ".join(f"{k}={v}" for k, v in value.items() if v is not None)
             elif isinstance(value, float):
-                value_str = f"{value:.2f}"
+                value_str = format_si(value) if value > 1_000 else f"{value:.2f}"
             else:
                 value_str = str(value) if value is not None else "—"
 
             # Format threshold
-            threshold_str = str(threshold) if threshold is not None else "—"
+            if isinstance(threshold, (int, float)) and threshold > 1_000:
+                threshold_str = format_si(threshold)
+            else:
+                threshold_str = str(threshold) if threshold is not None else "—"
 
             st.write(
                 f"{icon} **{crit_name}**: {value_str} (threshold: {threshold_str})"

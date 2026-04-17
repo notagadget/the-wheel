@@ -16,6 +16,19 @@ _STATE_LABELS = {
 }
 
 
+def format_si(value: float) -> str:
+    """Format a number using SI suffixes (K, M, B)."""
+    if value is None:
+        return "—"
+    if value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.1f}B"
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.1f}M"
+    if value >= 1_000:
+        return f"{value / 1_000:.1f}K"
+    return f"{value:.0f}"
+
+
 def fmt_dollar(value) -> str:
     """Format a number as a dollar string with two decimal places."""
     if value is None:
