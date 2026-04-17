@@ -38,7 +38,7 @@ with col2:
 
 with get_conn() as conn:
     underlyings = conn.execute(
-        "SELECT u.underlying_id, u.ticker, u.iv_rank_cached, u.iv_rank_updated, u.notes, "
+        "SELECT u.underlying_id, u.ticker, u.iv_rank_cached, u.iv_updated, u.notes, "
         "COUNT(c.cycle_id) FILTER (WHERE c.state != 'CLOSED') AS active_cycles "
         "FROM underlying u "
         "LEFT JOIN cycle c ON c.underlying_id = u.underlying_id "
@@ -53,7 +53,7 @@ if underlyings:
             "Ticker":       u["ticker"],
             "IV Rank":      fmt_pct(u["iv_rank_cached"]),
             "Active cycles": u["active_cycles"] or 0,
-            "Updated":      u["iv_rank_updated"][:10] if u["iv_rank_updated"] else "—",
+            "Updated":      u["iv_updated"][:10] if u["iv_updated"] else "—",
             "Notes":        u["notes"] or "—",
         })
     import pandas as pd
