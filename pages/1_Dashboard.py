@@ -13,6 +13,7 @@ import pandas as pd
 from src.cost_basis import list_active_cycles, get_realized_pnl_summary, audit_all_active
 from src.db import get_conn
 from src.ui_helpers import cycles_to_dataframe, fmt_dollar, state_badge, color_pnl_column
+from src.poller import poller_status
 
 st.set_page_config(page_title="Dashboard", layout="wide")
 st.title("Dashboard")
@@ -42,6 +43,23 @@ if pending:
             use_container_width=True,
             hide_index=True,
         )
+
+
+# ---------------------------------------------------------------------------
+# Poller status
+# ---------------------------------------------------------------------------
+
+_status = poller_status()
+_poller_col1, _poller_col2, _poller_col3 = st.columns(3)
+with _poller_col1:
+    if _status["running"]:
+        st.success("Poller running")
+    else:
+        st.warning("Poller stopped")
+with _poller_col2:
+    st.metric("Pending fills", _status["pending_trades"])
+with _poller_col3:
+    st.metric("Poll interval", f"{_status['interval_s']}s")
 
 
 # ---------------------------------------------------------------------------
