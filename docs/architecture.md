@@ -7,12 +7,14 @@ Streamlit pages (UI layer)
     ↓
 eligibility.py (wheel_eligible gate — upstream of screening)
 screener.py (IV rank + timing filters)
+scanner.py (strategy criteria evaluation)
 state_machine.py (cycle transitions)
 cost_basis.py (P&L calculations)
     ↓
 SQLite wheel.db (schema in db/schema.sql)
     ↓
 Tradier API (via tradier.py)
+Massive.com API (via massive.py)
 Alpha Vantage API (via market_data.py)
 ```
 
