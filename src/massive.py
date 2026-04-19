@@ -10,7 +10,7 @@ import os
 import requests
 from typing import Optional
 from datetime import date, timedelta
-from functools import lru_cache
+import streamlit as st
 
 
 class MassiveError(Exception):
@@ -104,7 +104,7 @@ def get_prev_close(symbol: str) -> dict:
     }
 
 
-@lru_cache(maxsize=256)
+@st.cache_data(ttl=86400)
 def get_ticker_details(symbol: str) -> dict:
     """
     Get company details for a symbol.
@@ -131,7 +131,7 @@ def get_ticker_details(symbol: str) -> dict:
     }
 
 
-@lru_cache(maxsize=256)
+@st.cache_data(ttl=86400)
 def get_sma(symbol: str, window: int = 200) -> Optional[float]:
     """
     Get Simple Moving Average for a symbol.
@@ -166,7 +166,7 @@ def get_sma(symbol: str, window: int = 200) -> Optional[float]:
     return None
 
 
-@lru_cache(maxsize=256)
+@st.cache_data(ttl=86400)
 def get_daily_bars(symbol: str, days: int = 30) -> tuple:
     """
     Get daily bars for a symbol over the last N days.

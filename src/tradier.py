@@ -22,7 +22,8 @@ import os
 import requests
 from typing import Optional
 from datetime import date, timedelta
-from functools import lru_cache
+
+import streamlit as st
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +170,7 @@ def get_order_status(order_id: str) -> dict:
 # Options chain
 # ---------------------------------------------------------------------------
 
-@lru_cache(maxsize=256)
+@st.cache_data(ttl=300)
 def get_options_chain(
     symbol: str,
     expiration: str,        # YYYY-MM-DD
@@ -211,7 +212,7 @@ def get_options_chain(
     )
 
 
-@lru_cache(maxsize=256)
+@st.cache_data(ttl=86400)
 def get_expirations(symbol: str) -> tuple:
     """Returns tuple of available expiration dates (YYYY-MM-DD) for a symbol (cached)."""
     resp = _get("/v1/markets/options/expirations", {
@@ -229,7 +230,7 @@ def get_expirations(symbol: str) -> tuple:
 # IV data (used by market_data.py)
 # ---------------------------------------------------------------------------
 
-@lru_cache(maxsize=256)
+@st.cache_data(ttl=86400)
 def get_historical_iv(symbol: str, days: int = 365) -> tuple:
     """
     Fetch historical daily options data to derive IV history.
@@ -286,7 +287,7 @@ def get_historical_iv(symbol: str, days: int = 365) -> tuple:
     return tuple(result)
 
 
-@lru_cache(maxsize=256)
+@st.cache_data(ttl=300)
 def get_quote(symbol: str) -> dict:
     """Fetch current quote for a symbol (cached)."""
     resp = _get("/v1/markets/quotes", {"symbols": symbol, "greeks": "false"})

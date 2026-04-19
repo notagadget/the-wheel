@@ -13,7 +13,7 @@ Both are stored; which one the screener displays is a session preference
 
 from datetime import datetime, timezone
 from typing import Optional
-from functools import lru_cache
+import streamlit as st
 from src.db import get_conn
 from src.tradier import get_historical_iv, get_options_chain, get_expirations, TradierError
 
@@ -61,7 +61,7 @@ def compute_iv_metrics(iv_series: list[dict], current_iv: float) -> dict:
     }
 
 
-@lru_cache(maxsize=256)
+@st.cache_data(ttl=300)
 def get_current_iv(symbol: str) -> Optional[float]:
     """
     Fetch current 30-day IV from the nearest-expiry ATM options chain.

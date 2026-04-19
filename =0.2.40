@@ -1,0 +1,57 @@
+Collecting yfinance
+  Downloading yfinance-1.3.0-py2.py3-none-any.whl.metadata (6.1 kB)
+Requirement already satisfied: pandas>=1.3.0 in /opt/anaconda3/lib/python3.11/site-packages (from yfinance) (2.1.4)
+Requirement already satisfied: numpy>=1.16.5 in /opt/anaconda3/lib/python3.11/site-packages (from yfinance) (1.26.4)
+Requirement already satisfied: requests>=2.31 in /opt/anaconda3/lib/python3.11/site-packages (from yfinance) (2.32.3)
+Collecting multitasking>=0.0.7 (from yfinance)
+  Downloading multitasking-0.0.12.tar.gz (19 kB)
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Requirement already satisfied: platformdirs>=2.0.0 in /opt/anaconda3/lib/python3.11/site-packages (from yfinance) (3.10.0)
+Requirement already satisfied: pytz>=2022.5 in /opt/anaconda3/lib/python3.11/site-packages (from yfinance) (2023.3.post1)
+Requirement already satisfied: frozendict>=2.3.4 in /opt/anaconda3/lib/python3.11/site-packages (from yfinance) (2.4.2)
+Collecting peewee>=3.16.2 (from yfinance)
+  Downloading peewee-4.0.4-py3-none-any.whl.metadata (8.6 kB)
+Requirement already satisfied: beautifulsoup4>=4.11.1 in /opt/anaconda3/lib/python3.11/site-packages (from yfinance) (4.12.2)
+Collecting curl_cffi>=0.15 (from yfinance)
+  Downloading curl_cffi-0.15.0-cp310-abi3-macosx_11_0_arm64.whl.metadata (18 kB)
+Requirement already satisfied: protobuf>=3.19.0 in /opt/anaconda3/lib/python3.11/site-packages (from yfinance) (3.20.3)
+Collecting websockets>=13.0 (from yfinance)
+  Downloading websockets-16.0-cp311-cp311-macosx_11_0_arm64.whl.metadata (6.8 kB)
+Requirement already satisfied: soupsieve>1.2 in /opt/anaconda3/lib/python3.11/site-packages (from beautifulsoup4>=4.11.1->yfinance) (2.5)
+Collecting cffi>=2.0.0 (from curl_cffi>=0.15->yfinance)
+  Downloading cffi-2.0.0-cp311-cp311-macosx_11_0_arm64.whl.metadata (2.6 kB)
+Requirement already satisfied: certifi>=2024.2.2 in /opt/anaconda3/lib/python3.11/site-packages (from curl_cffi>=0.15->yfinance) (2025.1.31)
+Requirement already satisfied: rich in /opt/anaconda3/lib/python3.11/site-packages (from curl_cffi>=0.15->yfinance) (13.3.5)
+Requirement already satisfied: python-dateutil>=2.8.2 in /opt/anaconda3/lib/python3.11/site-packages (from pandas>=1.3.0->yfinance) (2.8.2)
+Requirement already satisfied: tzdata>=2022.1 in /opt/anaconda3/lib/python3.11/site-packages (from pandas>=1.3.0->yfinance) (2023.3)
+Requirement already satisfied: charset-normalizer<4,>=2 in /opt/anaconda3/lib/python3.11/site-packages (from requests>=2.31->yfinance) (2.0.4)
+Requirement already satisfied: idna<4,>=2.5 in /opt/anaconda3/lib/python3.11/site-packages (from requests>=2.31->yfinance) (3.4)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /opt/anaconda3/lib/python3.11/site-packages (from requests>=2.31->yfinance) (2.0.7)
+Requirement already satisfied: pycparser in /opt/anaconda3/lib/python3.11/site-packages (from cffi>=2.0.0->curl_cffi>=0.15->yfinance) (2.21)
+Requirement already satisfied: six>=1.5 in /opt/anaconda3/lib/python3.11/site-packages (from python-dateutil>=2.8.2->pandas>=1.3.0->yfinance) (1.16.0)
+Requirement already satisfied: markdown-it-py<3.0.0,>=2.2.0 in /opt/anaconda3/lib/python3.11/site-packages (from rich->curl_cffi>=0.15->yfinance) (2.2.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /opt/anaconda3/lib/python3.11/site-packages (from rich->curl_cffi>=0.15->yfinance) (2.15.1)
+Requirement already satisfied: mdurl~=0.1 in /opt/anaconda3/lib/python3.11/site-packages (from markdown-it-py<3.0.0,>=2.2.0->rich->curl_cffi>=0.15->yfinance) (0.1.0)
+Downloading yfinance-1.3.0-py2.py3-none-any.whl (133 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 133.7/133.7 kB 3.0 MB/s eta 0:00:00
+Downloading curl_cffi-0.15.0-cp310-abi3-macosx_11_0_arm64.whl (2.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.6/2.6 MB 24.3 MB/s eta 0:00:00
+Downloading peewee-4.0.4-py3-none-any.whl (144 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 144.5/144.5 kB 13.7 MB/s eta 0:00:00
+Downloading websockets-16.0-cp311-cp311-macosx_11_0_arm64.whl (175 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 175.3/175.3 kB 17.6 MB/s eta 0:00:00
+Downloading cffi-2.0.0-cp311-cp311-macosx_11_0_arm64.whl (180 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 180.6/180.6 kB 15.4 MB/s eta 0:00:00
+Building wheels for collected packages: multitasking
+  Building wheel for multitasking (setup.py): started
+  Building wheel for multitasking (setup.py): finished with status 'done'
+  Created wheel for multitasking: filename=multitasking-0.0.12-py3-none-any.whl size=15548 sha256=c0b78bea73f5a96390f3ac23e9c10c881efe3f2fd3e996394f7fb356d39f3580
+  Stored in directory: /Users/adamthompson/Library/Caches/pip/wheels/42/d6/84/bf57a755f4569494cd00de4bb46ef064874823f4d19c82e960
+Successfully built multitasking
+Installing collected packages: peewee, multitasking, websockets, cffi, curl_cffi, yfinance
+  Attempting uninstall: cffi
+    Found existing installation: cffi 1.16.0
+    Uninstalling cffi-1.16.0:
+      Successfully uninstalled cffi-1.16.0
+Successfully installed cffi-2.0.0 curl_cffi-0.15.0 multitasking-0.0.12 peewee-4.0.4 websockets-16.0 yfinance-1.3.0

@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -c ':*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(chmod +x scripts/build_context.sh)",
+      "Bash(scripts/build_context.sh)",
+      "Bash(python -m pytest tests/ -q)",
+      "Bash(git commit -m 'Regenerate PROJECT_CONTEXT.md with updated documentation:*)",
+      "Bash(git push:*)",
+      "Bash(gh auth:*)",
+      "Bash(brew install:*)",
+      "Bash(ssh -T git@github.com)",
+      "Bash(git remote:*)",
+      "Bash(git commit -m ' *)",
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(grep \"| \\\\`\")",
+      "Bash(awk '-F: ' '{print $NF}')",
+      "Bash(awk '{print $2}')",
+      "Bash(git -C /Users/adamthompson/Library/CloudStorage/Dropbox/Mac/Documents/GitHub/the-wheel status)",
+      "Bash(bash scripts/build_context.sh)",
+      "Bash(python -m pytest tests/test_eligibility.py -v)",
+      "Bash(python -m pytest tests/test_screener.py tests/test_eligibility.py -v)",
+      "Bash(python -m pytest tests/test_scanner.py -xvs)",
+      "Bash(python -m pytest tests/test_scanner.py -v)",
+      "Bash(python -m pytest tests/ -q --tb=no)",
+      "Bash(python -m pytest tests/test_tradier.py::test_get_config_missing_key_raises tests/test_tradier.py::test_get_config_missing_account_raises -v)",
+      "Bash(python -m pytest tests/test_scanner.py -x -q)",
+      "Bash(python -m pytest tests/test_eligibility.py tests/test_screener.py tests/test_scanner.py -v)",
+      "Bash(python -m pytest tests/test_scanner.py::test_get_institutional_ownership_pct_success -xvs)",
+      "Bash(python -m pytest tests/test_scanner.py::test_get_institutional_ownership_pct_success tests/test_scanner.py::test_get_institutional_ownership_pct_no_holders tests/test_scanner.py::test_get_institutional_ownership_pct_empty_df tests/test_scanner.py::test_get_institutional_ownership_pct_exception tests/test_scanner.py::test_scan_ticker_etf_component_passes tests/test_scanner.py::test_scan_ticker_etf_component_fails_ownership tests/test_scanner.py::test_scan_ticker_etf_component_unavailable -xvs)",
+      "Bash(python -m pytest tests/test_scanner.py::test_get_institutional_ownership_pct_success tests/test_scanner.py::test_get_institutional_ownership_pct_no_holders tests/test_scanner.py::test_get_institutional_ownership_pct_empty_df tests/test_scanner.py::test_get_institutional_ownership_pct_exception tests/test_scanner.py::test_scan_ticker_etf_component_passes tests/test_scanner.py::test_scan_ticker_etf_component_fails_ownership tests/test_scanner.py::test_scan_ticker_etf_component_unavailable -v)",
+      "Bash(git reset *)",
+      "Bash(python -m streamlit run pages/5_Eligibility.py --logger.level=warning)",
+      "Bash(python3)",
+      "Bash(git commit -m 'Tier 1.1: Replace @lru_cache with @st.cache_data for Streamlit persistence *)"
+    ]
+  }
+}
