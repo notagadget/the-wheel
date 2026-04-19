@@ -5,6 +5,7 @@ from unittest.mock import patch, MagicMock
 from datetime import date, timedelta
 
 from src import scanner, massive
+from src import yfinance_data
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +418,7 @@ def test_scan_ticker_vol_premium_manual_criteria(
     assert vol["criteria"]["min_iv_rank"]["passed"] is None
 
 
+@patch("src.yfinance_data.get_institutional_ownership_pct")
 @patch("src.scanner._get_daily_bars_tradier")
 @patch("src.tradier.get_quote")
 @patch("src.massive.get_daily_bars")
@@ -424,7 +426,7 @@ def test_scan_ticker_vol_premium_manual_criteria(
 @patch("src.massive.compute_rsi")
 @patch("src.massive.compute_avg_volume")
 @patch("src.massive.get_ticker_details")
-def test_scan_ticker_etf_component_manual_criteria(
+def test_scan_ticker_etf_component_passes(
     mock_ticker_details,
     mock_avg_volume,
     mock_rsi,
@@ -432,8 +434,9 @@ def test_scan_ticker_etf_component_manual_criteria(
     mock_daily_bars,
     mock_quote,
     mock_tradier_bars,
+    mock_inst_ownership,
 ):
-    """ETF_COMPONENT strategy has manual institutional ownership criteria."""
+    """ETF_COMPONENT strategy passes when institutional ownership meets threshold."""
     mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
     mock_tradier_bars.return_value = [{"close": 50.0, "volume": 1_000_000}]
@@ -441,12 +444,84 @@ def test_scan_ticker_etf_component_manual_criteria(
     mock_avg_volume.return_value = 1_000_000
     mock_sma.return_value = 45.0
     mock_rsi.return_value = 50.0
+    mock_inst_ownership.return_value = 72.45
+
+    result = scanner.scan_ticker("AAPL")
+
+    etf = result["strategies"]["ETF_COMPONENT"]
+    assert etf["criteria"]["min_institutional_ownership_pct"]["passed"] is True
+    assert etf["criteria"]["min_institutional_ownership_pct"]["value"] == 72.45
+    assert "72.5% institutional" in etf["criteria"]["min_institutional_ownership_pct"]["note"]
+
+
+@patch("src.yfinance_data.get_institutional_ownership_pct")
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
+@patch("src.massive.get_daily_bars")
+@patch("src.massive.get_sma")
+@patch("src.massive.compute_rsi")
+@patch("src.massive.compute_avg_volume")
+@patch("src.massive.get_ticker_details")
+def test_scan_ticker_etf_component_fails_ownership(
+    mock_ticker_details,
+    mock_avg_volume,
+    mock_rsi,
+    mock_sma,
+    mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
+    mock_inst_ownership,
+):
+    """ETF_COMPONENT strategy fails when institutional ownership below threshold."""
+    mock_quote.return_value = {"last": 50.0}
+    mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 1_000_000}]
+    mock_daily_bars.return_value = [{"close": 50.0}]
+    mock_avg_volume.return_value = 1_000_000
+    mock_sma.return_value = 45.0
+    mock_rsi.return_value = 50.0
+    mock_inst_ownership.return_value = 45.0  # Below 60.0 threshold
+
+    result = scanner.scan_ticker("AAPL")
+
+    etf = result["strategies"]["ETF_COMPONENT"]
+    assert etf["criteria"]["min_institutional_ownership_pct"]["passed"] is False
+    assert etf["criteria"]["min_institutional_ownership_pct"]["value"] == 45.0
+
+
+@patch("src.yfinance_data.get_institutional_ownership_pct")
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
+@patch("src.massive.get_daily_bars")
+@patch("src.massive.get_sma")
+@patch("src.massive.compute_rsi")
+@patch("src.massive.compute_avg_volume")
+@patch("src.massive.get_ticker_details")
+def test_scan_ticker_etf_component_unavailable(
+    mock_ticker_details,
+    mock_avg_volume,
+    mock_rsi,
+    mock_sma,
+    mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
+    mock_inst_ownership,
+):
+    """ETF_COMPONENT strategy has None criteria when yfinance unavailable."""
+    mock_quote.return_value = {"last": 50.0}
+    mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 1_000_000}]
+    mock_daily_bars.return_value = [{"close": 50.0}]
+    mock_avg_volume.return_value = 1_000_000
+    mock_sma.return_value = 45.0
+    mock_rsi.return_value = 50.0
+    mock_inst_ownership.return_value = None
 
     result = scanner.scan_ticker("AAPL")
 
     etf = result["strategies"]["ETF_COMPONENT"]
     assert etf["criteria"]["min_institutional_ownership_pct"]["passed"] is None
-    assert "13F filings" in etf["criteria"]["min_institutional_ownership_pct"]["note"]
+    assert "yfinance unavailable" in etf["criteria"]["min_institutional_ownership_pct"]["note"]
 
 
 @patch("src.tradier.get_quote")
@@ -541,3 +616,45 @@ def test_scan_universe_calls_progress_callback(mock_scan_ticker):
     assert len(callback_calls) == 2
     assert callback_calls[0] == (0, 2, "AAPL")
     assert callback_calls[1] == (1, 2, "MSFT")
+
+
+# ---------------------------------------------------------------------------
+# yfinance_data tests
+# ---------------------------------------------------------------------------
+
+@patch("src.yfinance_data.yf.Ticker")
+def test_get_institutional_ownership_pct_success(mock_ticker_cls):
+    """get_institutional_ownership_pct returns correct institutional ownership %."""
+    import pandas as pd
+    from src.yfinance_data import get_institutional_ownership_pct
+
+    mock_df = pd.DataFrame(["5.07%", "15.23%", "72.45%", "84.68%"])
+    mock_ticker_cls.return_value.major_holders = mock_df
+
+    result = get_institutional_ownership_pct("RKLB")
+    assert result == 72.45
+
+
+@patch("src.yfinance_data.yf.Ticker")
+def test_get_institutional_ownership_pct_no_holders(mock_ticker_cls):
+    """get_institutional_ownership_pct returns None when major_holders is None."""
+    from src.yfinance_data import get_institutional_ownership_pct
+    mock_ticker_cls.return_value.major_holders = None
+    assert get_institutional_ownership_pct("RKLB") is None
+
+
+@patch("src.yfinance_data.yf.Ticker")
+def test_get_institutional_ownership_pct_empty_df(mock_ticker_cls):
+    """get_institutional_ownership_pct returns None when major_holders is empty."""
+    import pandas as pd
+    from src.yfinance_data import get_institutional_ownership_pct
+    mock_ticker_cls.return_value.major_holders = pd.DataFrame()
+    assert get_institutional_ownership_pct("RKLB") is None
+
+
+@patch("src.yfinance_data.yf.Ticker")
+def test_get_institutional_ownership_pct_exception(mock_ticker_cls):
+    """get_institutional_ownership_pct returns None on any exception."""
+    from src.yfinance_data import get_institutional_ownership_pct
+    mock_ticker_cls.side_effect = Exception("Connection error")
+    assert get_institutional_ownership_pct("RKLB") is None

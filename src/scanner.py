@@ -157,11 +157,14 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict) -> dict:
         }
 
     elif strategy == "ETF_COMPONENT":
+        from src.yfinance_data import get_institutional_ownership_pct
+        min_inst = strat_config.get("min_institutional_ownership_pct", 60.0)
+        inst_pct = get_institutional_ownership_pct(symbol)
         criteria["min_institutional_ownership_pct"] = {
-            "passed": None,
-            "value": None,
-            "threshold": strat_config.get("min_institutional_ownership_pct", 60.0),
-            "note": "Not available via Massive — verify manually (13F filings, etc.).",
+            "passed": inst_pct >= min_inst if inst_pct is not None else None,
+            "value": inst_pct,
+            "threshold": min_inst,
+            "note": f"{inst_pct:.1f}% institutional" if inst_pct is not None else "yfinance unavailable",
         }
 
     elif strategy == "VOL_PREMIUM":
@@ -293,7 +296,7 @@ def scan_universe(
             progress_callback(i, len(tickers), symbol)
 
         results.append(scan_ticker(symbol))
-        time.sleep(1.0)  # Rate limit (Tradier: 250 req/hr ≈ 4 req/sec)
+        #time.sleep(1.0)  # Rate limit (Tradier: 250 req/hr ≈ 4 req/sec)
 
     def sort_key(r):
         if r.get("error"):

@@ -8,7 +8,7 @@ A Python/Streamlit app for screening equities for the Wheel options strategy, tr
 - **DB**: SQLite (single file, `db/wheel.db`)
 - **State/logic**: Pure Python modules in `src/`
 - **Broker integration**: Tradier REST API (`src/tradier.py`) — sandbox by default, live gated
-- **Market data**: Tradier options chain + IV history
+- **Market data**: Tradier options chain + IV history; yfinance (institutional ownership via SEC 13F)
 - **Schema source of truth**: `db/schema.sql`
 
 ## Before writing any code, read:
@@ -41,6 +41,7 @@ src/
   tradier.py    Tradier REST client (sandbox + live)
   market_data.py    IV computation and refresh logic (via Tradier)
   screener.py   equity screening logic
+  yfinance_data.py  yfinance wrapper (institutional ownership %)
 pages/          Streamlit pages (UI only, no business logic)
 tests/          pytest unit tests for src/ modules
 ```
