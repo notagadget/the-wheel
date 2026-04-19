@@ -69,7 +69,7 @@ def _render_criterion(crit_name: str, crit_data: dict):
         st.caption(formatted["note"])
 
 
-def _render_scan_result_table(result: dict):
+def _render_scan_result_table(result: dict, collapsed: bool = False, index: int = 0):
     """Render scan result as an HTML card with strategy tables."""
     symbol = result["symbol"]
 
@@ -100,7 +100,8 @@ def _render_scan_result_table(result: dict):
     strategy_count = sum(1 for d in strategies.values() if d.get("passes_all"))
     label = f"{header_text} — {strategy_count} strateg{'y' if strategy_count == 1 else 'ies'} pass"
 
-    with st.expander(label, expanded=passes_any):
+    expanded_state = False if collapsed else passes_any
+    with st.expander(label, expanded=expanded_state):
         html_parts = []
 
         html_parts.append(
@@ -108,7 +109,8 @@ def _render_scan_result_table(result: dict):
             'display: flex; '
             'justify-content: space-between; '
             'align-items: center; '
-            'margin-bottom: 1rem;'
+            'margin-bottom: 0.5rem;'
+            'font-size: 0.875rem;'
             '">'
         )
         html_parts.append(f'<div style="font-weight: bold;">{header_text}</div>')
@@ -116,9 +118,9 @@ def _render_scan_result_table(result: dict):
             f'<div style="'
             f'background-color: {badge_bg}; '
             f'color: white; '
-            f'padding: 0.25rem 0.5rem; '
-            f'border-radius: 0.25rem; '
-            f'font-size: 0.875rem;'
+            f'padding: 0.15rem 0.4rem; '
+            f'border-radius: 0.2rem; '
+            f'font-size: 0.75rem;'
             f'">{summary_text}</div>'
         )
         html_parts.append('</div>')
@@ -131,9 +133,10 @@ def _render_scan_result_table(result: dict):
 
             html_parts.append(
                 f'<div style="'
-                f'margin-top: 1rem; '
-                f'margin-bottom: 0.5rem; '
+                f'margin-top: 0.5rem; '
+                f'margin-bottom: 0.3rem; '
                 f'font-weight: bold;'
+                f'font-size: 0.875rem;'
                 f'">{icon} {strat_name} — <em>{desc}</em></div>'
             )
 
@@ -141,7 +144,7 @@ def _render_scan_result_table(result: dict):
                 '<table style="'
                 'width: 100%; '
                 'border-collapse: collapse; '
-                'font-size: 0.875rem; '
+                'font-size: 0.8rem; '
                 'table-layout: fixed;'
                 '">'
             )
@@ -164,8 +167,9 @@ def _render_scan_result_table(result: dict):
                     html_parts.append(
                         f'<th style="'
                         f'text-align: left; '
-                        f'padding: 0.35rem 0.5rem; '
+                        f'padding: 0.25rem 0.35rem; '
                         f'font-weight: bold;'
+                        f'font-size: 0.75rem;'
                         f'">{header}</th>'
                     )
                 html_parts.append('</tr>')
@@ -188,14 +192,14 @@ def _render_scan_result_table(result: dict):
                 html_parts.append(
                     '<tr style="border-bottom: 0.5px solid var(--color-border-tertiary, #ddd);">'
                 )
-                html_parts.append(f'<td style="padding: 0.35rem 0.5rem;">{_format_criterion_name(crit_name)}</td>')
-                html_parts.append(f'<td style="padding: 0.35rem 0.5rem;">{formatted["value"]}</td>')
-                html_parts.append(f'<td style="padding: 0.35rem 0.5rem;">{formatted["threshold"]}</td>')
+                html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{_format_criterion_name(crit_name)}</td>')
+                html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{formatted["value"]}</td>')
+                html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{formatted["threshold"]}</td>')
                 html_parts.append(
-                    f'<td style="padding: 0.35rem 0.5rem; color: {status_color}; font-weight: bold;">{status_icon}</td>'
+                    f'<td style="padding: 0.2rem 0.35rem; color: {status_color}; font-weight: bold;">{status_icon}</td>'
                 )
                 html_parts.append(
-                    f'<td style="padding: 0.35rem 0.5rem; font-size: 0.75rem; color: gray;">{formatted["note"]}</td>'
+                    f'<td style="padding: 0.2rem 0.35rem; font-size: 0.7rem; color: gray;">{formatted["note"]}</td>'
                 )
                 html_parts.append('</tr>')
 
@@ -216,11 +220,11 @@ def _render_scan_result_table(result: dict):
                 "Add with strategies",
                 options=strategy_options,
                 default=passing_strategies[:1] if passing_strategies else [],
-                key=f"add_strategy_{symbol}",
+                key=f"add_strategy_{symbol}_{index}",
             )
         with col2:
             st.write("")
-            if st.button("✨ Add to watchlist", key=f"add_scan_{symbol}"):
+            if st.button("✨ Add to watchlist", key=f"add_scan_{symbol}_{index}"):
                 if not selected_strategies:
                     st.warning("Select at least one strategy.")
                 else:
@@ -228,40 +232,40 @@ def _render_scan_result_table(result: dict):
                     st.rerun()
 
 
-def _render_scan_result(result: dict):
+def _render_scan_result(result: dict, collapsed: bool = False, index: int = 0):
     """Render a single scan result showing all strategy evaluations."""
-    _render_scan_result_table(result)
+    _render_scan_result_table(result, collapsed=collapsed, index=index)
 
 
 def _render_timing_stats(ts: dict):
-    st.divider()
-    col_t1, col_t2, col_t3, col_t4 = st.columns(4)
-    col_t1.metric("⏱ Total Time", f"{ts['total_ms']/1000:.1f}s")
-    col_t2.metric("⏱ Avg/Ticker", f"{ts['avg_per_ticker_ms']:.0f}ms")
-    col_t3.metric("⏱ Min", f"{ts['min_per_ticker_ms']:.0f}ms")
-    col_t4.metric("⏱ Max", f"{ts['max_per_ticker_ms']:.0f}ms")
+    with st.expander("⏱ Scan Performance", expanded=False):
+        col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+        col_t1.metric("Total Time", f"{ts['total_ms']/1000:.1f}s")
+        col_t2.metric("Avg/Ticker", f"{ts['avg_per_ticker_ms']:.0f}ms")
+        col_t3.metric("Min", f"{ts['min_per_ticker_ms']:.0f}ms")
+        col_t4.metric("Max", f"{ts['max_per_ticker_ms']:.0f}ms")
 
-    if ts.get("batch_quote_ms"):
-        st.caption(f"Batch quotes: {ts['batch_quote_ms']:.0f}ms")
+        if ts.get("batch_quote_ms"):
+            st.caption(f"Batch quotes: {ts['batch_quote_ms']:.0f}ms")
 
-    if ts.get("api_breakdown"):
-        st.caption("Common data fetch timing (avg per ticker):")
-        breakdown = ts["api_breakdown"]
-        col_api1, col_api2, col_api3, col_api4 = st.columns(4)
-        col_api1.metric("get_quote", f"{breakdown.get('quote_ms', 0):.0f}ms")
-        col_api2.metric("ticker_details", f"{breakdown.get('ticker_details_ms', 0):.0f}ms")
-        col_api3.metric("daily_bars", f"{breakdown.get('daily_bars_ms', 0):.0f}ms")
-        col_api4.metric("avg_volume", f"{breakdown.get('avg_volume_ms', 0):.0f}ms")
+        if ts.get("api_breakdown"):
+            st.caption("Common data fetch timing (avg per ticker):")
+            breakdown = ts["api_breakdown"]
+            col_api1, col_api2, col_api3, col_api4 = st.columns(4)
+            col_api1.metric("get_quote", f"{breakdown.get('quote_ms', 0):.0f}ms")
+            col_api2.metric("ticker_details", f"{breakdown.get('ticker_details_ms', 0):.0f}ms")
+            col_api3.metric("daily_bars", f"{breakdown.get('daily_bars_ms', 0):.0f}ms")
+            col_api4.metric("avg_volume", f"{breakdown.get('avg_volume_ms', 0):.0f}ms")
 
-    if ts.get("strategy_breakdown"):
-        st.caption("Strategy evaluation timing (avg per ticker):")
-        for strat_name in sorted(ts["strategy_breakdown"].keys()):
-            calls = ts["strategy_breakdown"][strat_name]
-            if calls:
-                st.write(f"**{strat_name}**")
-                cols = st.columns(len(calls))
-                for i, (call_name, ms_val) in enumerate(sorted(calls.items())):
-                    cols[i].metric(call_name.replace("_ms", ""), f"{ms_val:.0f}ms")
+        if ts.get("strategy_breakdown"):
+            st.caption("Strategy evaluation timing (avg per ticker):")
+            for strat_name in sorted(ts["strategy_breakdown"].keys()):
+                calls = ts["strategy_breakdown"][strat_name]
+                if calls:
+                    st.write(f"**{strat_name}**")
+                    cols = st.columns(len(calls))
+                    for i, (call_name, ms_val) in enumerate(sorted(calls.items())):
+                        cols[i].metric(call_name.replace("_ms", ""), f"{ms_val:.0f}ms")
 
 
 def _add_from_scan(symbol: str, strategies: list[str]):
@@ -389,13 +393,13 @@ with tab_review:
 with tab_scan:
     st.html("""
 <style>
-  [data-testid="stTable"] table { font-size: 13px; }
+  [data-testid="stTable"] table { font-size: 11px; }
   [data-testid="stTable"] th,
-  [data-testid="stTable"] td { padding: 5px 10px; line-height: 1.4; }
+  [data-testid="stTable"] td { padding: 3px 6px; line-height: 1.2; }
   [data-testid="stTable"] th,
   [data-testid="stTable"] td { border-color: rgba(255,255,255,0.08); }
-  [data-testid="stExpander"] summary { padding: 8px 12px; font-size: 14px; }
-  [data-testid="stExpander"] { border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 8px; }
+  [data-testid="stExpander"] summary { padding: 6px 10px; font-size: 12px; }
+  [data-testid="stExpander"] { border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 6px; }
 </style>
 """)
 
@@ -532,13 +536,13 @@ with tab_scan:
 
         if full_passes:
             st.subheader("✅ Full Passes")
-            for result in full_passes:
-                _render_scan_result(result)
+            for i, result in enumerate(full_passes):
+                _render_scan_result(result, collapsed=True, index=i)
 
         if partials:
             st.subheader("⚠️ Partial Matches")
-            for result in partials:
-                _render_scan_result(result)
+            for i, result in enumerate(partials):
+                _render_scan_result(result, collapsed=True, index=i)
 
         if errors:
             st.subheader("❌ Errors")
