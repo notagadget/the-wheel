@@ -16,14 +16,11 @@ from src.ui_helpers import format_si
 st.title("Wheel Eligibility")
 
 
-def _render_criterion(crit_name: str, crit_data: dict):
-    if crit_data.get("passed") is True:
-        icon = "✅"
-    elif crit_data.get("passed") is False:
-        icon = "❌"
-    else:
-        icon = "⚠️"
+def _format_criterion_cell(crit_data: dict) -> dict:
+    """Extract and format criterion cell data for display.
 
+    Returns a dict with keys: value, threshold, passed, note.
+    """
     value = crit_data.get("value")
     threshold = crit_data.get("threshold")
     note = crit_data.get("note", "")
@@ -40,63 +37,189 @@ def _render_criterion(crit_name: str, crit_data: dict):
     else:
         threshold_str = str(threshold) if threshold is not None else "—"
 
-    st.write(f"{icon} **{crit_name}**: {value_str} (threshold: {threshold_str})")
-    if note:
-        st.caption(note)
+    passed = crit_data.get("passed")
+
+    return {
+        "value": value_str,
+        "threshold": threshold_str,
+        "passed": passed,
+        "note": note,
+    }
 
 
-def _render_scan_result(result: dict):
-    """Render a single scan result showing all strategy evaluations."""
+def _render_criterion(crit_name: str, crit_data: dict):
+    formatted = _format_criterion_cell(crit_data)
+
+    if formatted["passed"] is True:
+        icon = "✅"
+    elif formatted["passed"] is False:
+        icon = "❌"
+    else:
+        icon = "⚠️"
+
+    st.write(f"{icon} **{crit_name}**: {formatted['value']} (threshold: {formatted['threshold']})")
+    if formatted["note"]:
+        st.caption(formatted["note"])
+
+
+def _render_scan_result_table(result: dict):
+    """Render scan result as an HTML card with strategy tables."""
     symbol = result["symbol"]
+
+    if result.get("error"):
+        st.error(result["error"])
+        return
+
     name = result.get("name") or ""
     price = result.get("price")
     market_cap_b = result.get("market_cap_b")
     strategies = result.get("strategies", {})
     passes_any = result.get("passes_any")
 
-    header = symbol
+    passing_count = sum(1 for s, d in strategies.items() if d.get("passes_all"))
+    summary_text = f"{passing_count} strategy passes" if passing_count > 1 else (
+        "1 strategy passes" if passing_count == 1 else "0 strategies pass"
+    )
+    badge_bg = "#2ecc71" if passes_any else "#e74c3c"
+
+    header_text = symbol
     if name:
-        header += f" — {name}"
+        header_text += f" — {name}"
     if price:
-        header += f" @ ${price:.2f}"
+        header_text += f" @ ${price:.2f}"
     if market_cap_b:
-        header += f" (${market_cap_b:.1f}B)"
+        header_text += f" (${market_cap_b:.1f}B)"
 
-    with st.expander(header, expanded=passes_any):
-        if result.get("error"):
-            st.error(result["error"])
-            return
+    html_parts = []
+    html_parts.append(
+        '<div style="'
+        'border: 0.5px solid var(--color-border-tertiary, #ddd); '
+        'border-radius: 0.5rem; '
+        'padding: 1rem; '
+        'margin-bottom: 1rem;'
+        '">'
+    )
 
-        for strat_name, strat_data in strategies.items():
-            strat_passes = strat_data.get("passes_all")
-            icon = "✅" if strat_passes else "❌"
-            desc = STRATEGIES[strat_name]["description"]
-            st.markdown(f"**{icon} {strat_name}** — _{desc}_")
+    html_parts.append(
+        '<div style="'
+        'display: flex; '
+        'justify-content: space-between; '
+        'align-items: center; '
+        'margin-bottom: 1rem;'
+        '">'
+    )
+    html_parts.append(f'<div style="font-weight: bold;">{header_text}</div>')
+    html_parts.append(
+        f'<div style="'
+        f'background-color: {badge_bg}; '
+        f'color: white; '
+        f'padding: 0.25rem 0.5rem; '
+        f'border-radius: 0.25rem; '
+        f'font-size: 0.875rem;'
+        f'">{summary_text}</div>'
+    )
+    html_parts.append('</div>')
 
-            for crit_name, crit_data in strat_data.get("criteria", {}).items():
-                _render_criterion(crit_name, crit_data)
+    first_strategy = True
+    for strat_name, strat_data in strategies.items():
+        strat_passes = strat_data.get("passes_all")
+        icon = "✅" if strat_passes else "❌"
+        desc = STRATEGIES[strat_name]["description"]
 
-            st.divider()
+        html_parts.append(
+            f'<div style="'
+            f'margin-top: 1rem; '
+            f'margin-bottom: 0.5rem; '
+            f'font-weight: bold;'
+            f'">{icon} {strat_name} — <em>{desc}</em></div>'
+        )
 
-        passing_strategies = [s for s, d in strategies.items() if d.get("passes_all")]
-        strategy_options = passing_strategies if passing_strategies else list(STRATEGIES.keys())
+        html_parts.append(
+            '<table style="'
+            'width: 100%; '
+            'border-collapse: collapse; '
+            'font-size: 0.875rem;'
+            '">'
+        )
 
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            selected_strategies = st.multiselect(
-                "Add with strategies",
-                options=strategy_options,
-                default=passing_strategies[:1] if passing_strategies else [],
-                key=f"add_strategy_{symbol}",
+        if first_strategy:
+            html_parts.append('<thead>')
+            html_parts.append(
+                '<tr style="border-bottom: 0.5px solid var(--color-border-tertiary, #ddd);">'
             )
-        with col2:
-            st.write("")  # vertical alignment
-            if st.button("✨ Add to watchlist", key=f"add_scan_{symbol}"):
-                if not selected_strategies:
-                    st.warning("Select at least one strategy.")
-                else:
-                    _add_from_scan(symbol, selected_strategies)
-                    st.rerun()
+            for header in ["Criterion", "Value", "Threshold", "Status", "Note"]:
+                html_parts.append(
+                    f'<th style="'
+                    f'text-align: left; '
+                    f'padding: 0.5rem; '
+                    f'font-weight: bold;'
+                    f'">{header}</th>'
+                )
+            html_parts.append('</tr>')
+            html_parts.append('</thead>')
+
+        html_parts.append('<tbody>')
+        for crit_name, crit_data in strat_data.get("criteria", {}).items():
+            formatted = _format_criterion_cell(crit_data)
+
+            if formatted["passed"] is True:
+                status_icon = "✅"
+                status_color = "#2ecc71"
+            elif formatted["passed"] is False:
+                status_icon = "❌"
+                status_color = "#e74c3c"
+            else:
+                status_icon = "⚠️"
+                status_color = "#f39c12"
+
+            html_parts.append(
+                '<tr style="border-bottom: 0.5px solid var(--color-border-tertiary, #ddd);">'
+            )
+            html_parts.append(f'<td style="padding: 0.5rem;">{crit_name}</td>')
+            html_parts.append(f'<td style="padding: 0.5rem;">{formatted["value"]}</td>')
+            html_parts.append(f'<td style="padding: 0.5rem;">{formatted["threshold"]}</td>')
+            html_parts.append(
+                f'<td style="padding: 0.5rem; color: {status_color}; font-weight: bold;">{status_icon}</td>'
+            )
+            html_parts.append(
+                f'<td style="padding: 0.5rem; font-size: 0.75rem; color: gray;">{formatted["note"]}</td>'
+            )
+            html_parts.append('</tr>')
+
+        html_parts.append('</tbody>')
+        html_parts.append('</table>')
+
+        first_strategy = False
+
+    html_parts.append('</div>')
+
+    html_content = "\n".join(html_parts)
+    st.html(html_content)
+
+    passing_strategies = [s for s, d in strategies.items() if d.get("passes_all")]
+    strategy_options = passing_strategies if passing_strategies else list(STRATEGIES.keys())
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        selected_strategies = st.multiselect(
+            "Add with strategies",
+            options=strategy_options,
+            default=passing_strategies[:1] if passing_strategies else [],
+            key=f"add_strategy_{symbol}",
+        )
+    with col2:
+        st.write("")
+        if st.button("✨ Add to watchlist", key=f"add_scan_{symbol}"):
+            if not selected_strategies:
+                st.warning("Select at least one strategy.")
+            else:
+                _add_from_scan(symbol, selected_strategies)
+                st.rerun()
+
+
+def _render_scan_result(result: dict):
+    """Render a single scan result showing all strategy evaluations."""
+    _render_scan_result_table(result)
 
 
 def _add_from_scan(symbol: str, strategies: list[str]):
