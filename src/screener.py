@@ -49,7 +49,7 @@ def get_screening_candidates(
 
     Returns list of dicts with keys:
     - underlying_id, ticker, iv_rank_cached, iv_current, earnings_date, notes,
-      eligible_strategy, last_reviewed, active_cycles, has_earnings_soon
+      strategies, conviction, last_reviewed, active_cycles, has_earnings_soon
 
     Sorted by iv_rank descending (highest IV rank first).
     """
@@ -64,12 +64,17 @@ def get_screening_candidates(
                 u.earnings_date,
                 u.notes,
                 u.iv_updated,
-                u.eligible_strategy,
                 u.last_reviewed,
-                COUNT(CASE WHEN c.state IN ('SHORT_PUT', 'LONG_STOCK')
-                      THEN 1 END)  AS active_cycles
+                GROUP_CONCAT(us.strategy, ',') AS strategies_csv,
+                COUNT(DISTINCT us.strategy)    AS conviction,
+                (
+                    SELECT COUNT(*)
+                    FROM cycle c
+                    WHERE c.underlying_id = u.underlying_id
+                      AND c.state IN ('SHORT_PUT', 'LONG_STOCK')
+                ) AS active_cycles
             FROM underlying u
-            LEFT JOIN cycle c ON c.underlying_id = u.underlying_id
+            LEFT JOIN underlying_strategy us ON us.underlying_id = u.underlying_id
             WHERE u.wheel_eligible = 1
               AND (u.iv_rank_cached >= ? OR u.iv_rank_cached IS NULL)
             GROUP BY u.underlying_id
@@ -86,6 +91,9 @@ def get_screening_candidates(
         if earnings_soon:
             continue
 
+        csv = row["strategies_csv"] or ""
+        strategies = csv.split(",") if csv else []
+
         candidates.append({
             "underlying_id": row["underlying_id"],
             "ticker": row["ticker"],
@@ -95,7 +103,8 @@ def get_screening_candidates(
             "earnings_date": row["earnings_date"],
             "notes": row["notes"],
             "iv_updated": row["iv_updated"],
-            "eligible_strategy": row["eligible_strategy"],
+            "strategies": strategies,
+            "conviction": row["conviction"],
             "last_reviewed": row["last_reviewed"],
             "has_earnings_soon": earnings_soon,
         })
@@ -113,11 +122,12 @@ def get_screening_candidates_by_strategy(
     max_results: Optional[int] = None,
 ) -> list[dict]:
     """
-    Like get_screening_candidates() but filtered to a single strategy.
+    Like get_screening_candidates() but filtered to tickers with a specific strategy tag.
 
     Uses a lower default min_iv_rank (40 vs 50) because strategy eligibility
     already provides quality filtering.
     Uses a longer default earnings window (30 days) appropriate for 30-45 DTE cycles.
+    Returns full strategies list and conviction count per candidate.
     """
     with get_conn() as conn:
         rows = conn.execute("""
@@ -130,14 +140,21 @@ def get_screening_candidates_by_strategy(
                 u.earnings_date,
                 u.notes,
                 u.iv_updated,
-                u.eligible_strategy,
                 u.last_reviewed,
-                COUNT(CASE WHEN c.state IN ('SHORT_PUT', 'LONG_STOCK')
-                      THEN 1 END)  AS active_cycles
+                GROUP_CONCAT(us.strategy, ',') AS strategies_csv,
+                COUNT(DISTINCT us.strategy)    AS conviction,
+                (
+                    SELECT COUNT(*)
+                    FROM cycle c
+                    WHERE c.underlying_id = u.underlying_id
+                      AND c.state IN ('SHORT_PUT', 'LONG_STOCK')
+                ) AS active_cycles
             FROM underlying u
-            LEFT JOIN cycle c ON c.underlying_id = u.underlying_id
+            JOIN underlying_strategy us ON us.underlying_id = u.underlying_id
             WHERE u.wheel_eligible = 1
-              AND u.eligible_strategy = ?
+              AND u.underlying_id IN (
+                  SELECT underlying_id FROM underlying_strategy WHERE strategy = ?
+              )
               AND (u.iv_rank_cached >= ? OR u.iv_rank_cached IS NULL)
             GROUP BY u.underlying_id
             ORDER BY u.iv_rank_cached DESC NULLS LAST, u.ticker
@@ -153,6 +170,9 @@ def get_screening_candidates_by_strategy(
         if earnings_soon:
             continue
 
+        csv = row["strategies_csv"] or ""
+        strategies = csv.split(",") if csv else []
+
         candidates.append({
             "underlying_id": row["underlying_id"],
             "ticker": row["ticker"],
@@ -162,7 +182,8 @@ def get_screening_candidates_by_strategy(
             "earnings_date": row["earnings_date"],
             "notes": row["notes"],
             "iv_updated": row["iv_updated"],
-            "eligible_strategy": row["eligible_strategy"],
+            "strategies": strategies,
+            "conviction": row["conviction"],
             "last_reviewed": row["last_reviewed"],
             "has_earnings_soon": earnings_soon,
         })

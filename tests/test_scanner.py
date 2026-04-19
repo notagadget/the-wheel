@@ -206,6 +206,49 @@ def test_get_sma_empty(mock_request):
 # scan_ticker tests
 # ---------------------------------------------------------------------------
 
+_COMMON_MOCKS = dict(
+    mock_ticker_details={"name": "Test Corp", "market_cap_b": 5.0, "exchange": "XNYS"},
+    mock_tradier_bars=[{"close": 50.0, "volume": 500_000}],
+    mock_avg_volume=500_000,
+)
+
+
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
+@patch("src.massive.get_daily_bars")
+@patch("src.massive.get_sma")
+@patch("src.massive.compute_rsi")
+@patch("src.massive.compute_avg_volume")
+@patch("src.massive.get_ticker_details")
+def test_scan_ticker_returns_all_strategies(
+    mock_ticker_details,
+    mock_avg_volume,
+    mock_rsi,
+    mock_sma,
+    mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
+):
+    """scan_ticker evaluates all strategies and returns them in result."""
+    mock_quote.return_value = {"last": 50.0}
+    mock_ticker_details.return_value = {"name": "Test Corp", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
+    mock_daily_bars.return_value = [{"close": float(50 + i)} for i in range(16)]
+    mock_avg_volume.return_value = 500_000
+    mock_sma.return_value = 45.0
+    mock_rsi.return_value = 50.0
+
+    from src.eligibility import STRATEGIES
+    result = scanner.scan_ticker("AAPL")
+
+    assert result["symbol"] == "AAPL"
+    assert result["error"] is None
+    assert result["price"] == 50.0
+    assert result["market_cap_b"] == 5.0
+    assert set(result["strategies"].keys()) == set(STRATEGIES.keys())
+    assert "passes_any" in result
+
+
 @patch("src.scanner._get_daily_bars_tradier")
 @patch("src.tradier.get_quote")
 @patch("src.massive.get_daily_bars")
@@ -222,7 +265,7 @@ def test_scan_ticker_technical_all_pass(
     mock_quote,
     mock_tradier_bars,
 ):
-    """scan_ticker TECHNICAL strategy with all criteria passing."""
+    """TECHNICAL strategy passes when price > SMA, RSI in range, volume/price/cap ok."""
     mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test Corp", "market_cap_b": 5.0, "exchange": "XNYS"}
     mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
@@ -231,14 +274,11 @@ def test_scan_ticker_technical_all_pass(
     mock_sma.return_value = 45.0  # Price 50 > SMA 45
     mock_rsi.return_value = 50.0  # RSI between 35-65
 
-    result = scanner.scan_ticker("AAPL", "TECHNICAL")
+    result = scanner.scan_ticker("AAPL")
 
-    assert result["symbol"] == "AAPL"
-    assert result["strategy"] == "TECHNICAL"
-    assert result["error"] is None
-    assert result["passes_all"] is True
-    assert result["price"] == 50.0
-    assert result["market_cap_b"] == 5.0
+    technical = result["strategies"]["TECHNICAL"]
+    assert technical["passes_all"] is True
+    assert result["passes_any"] is True
 
 
 @patch("src.scanner._get_daily_bars_tradier")
@@ -257,8 +297,8 @@ def test_scan_ticker_price_below_min(
     mock_quote,
     mock_tradier_bars,
 ):
-    """scan_ticker fails when price is below minimum."""
-    mock_quote.return_value = {"last": 5.0}  # Below min_price 10.0
+    """All strategies fail min_price when price is below the lowest threshold (10.0)."""
+    mock_quote.return_value = {"last": 5.0}
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
     mock_tradier_bars.return_value = [{"close": 5.0, "volume": 500_000}]
     mock_daily_bars.return_value = [{"close": 5.0}]
@@ -266,41 +306,11 @@ def test_scan_ticker_price_below_min(
     mock_sma.return_value = 4.0
     mock_rsi.return_value = 50.0
 
-    result = scanner.scan_ticker("LOW", "TECHNICAL")
+    result = scanner.scan_ticker("LOW")
 
-    assert result["passes_all"] is False
-    assert result["criteria"]["min_price"]["passed"] is False
-
-
-@patch("src.scanner._get_daily_bars_tradier")
-@patch("src.tradier.get_quote")
-@patch("src.massive.get_daily_bars")
-@patch("src.massive.get_sma")
-@patch("src.massive.compute_rsi")
-@patch("src.massive.compute_avg_volume")
-@patch("src.massive.get_ticker_details")
-def test_scan_ticker_price_above_max(
-    mock_ticker_details,
-    mock_avg_volume,
-    mock_rsi,
-    mock_sma,
-    mock_daily_bars,
-    mock_quote,
-    mock_tradier_bars,
-):
-    """scan_ticker fails when price is above maximum."""
-    mock_quote.return_value = {"last": 200.0}  # Above max_price 150.0
-    mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
-    mock_tradier_bars.return_value = [{"close": 200.0, "volume": 500_000}]
-    mock_daily_bars.return_value = [{"close": 200.0}]
-    mock_avg_volume.return_value = 500_000
-    mock_sma.return_value = 190.0
-    mock_rsi.return_value = 50.0
-
-    result = scanner.scan_ticker("HIGH", "TECHNICAL")
-
-    assert result["passes_all"] is False
-    assert result["criteria"]["max_price"]["passed"] is False
+    assert result["passes_any"] is False
+    for strat_data in result["strategies"].values():
+        assert strat_data["criteria"]["min_price"]["passed"] is False
 
 
 @patch("src.scanner._get_daily_bars_tradier")
@@ -319,7 +329,7 @@ def test_scan_ticker_below_200dma(
     mock_quote,
     mock_tradier_bars,
 ):
-    """scan_ticker TECHNICAL fails when price below 200-day SMA."""
+    """TECHNICAL fails above_200dma when price < SMA."""
     mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
     mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
@@ -328,10 +338,11 @@ def test_scan_ticker_below_200dma(
     mock_sma.return_value = 55.0  # Price 50 < SMA 55
     mock_rsi.return_value = 50.0
 
-    result = scanner.scan_ticker("AAPL", "TECHNICAL")
+    result = scanner.scan_ticker("AAPL")
 
-    assert result["passes_all"] is False
-    assert result["criteria"]["above_200dma"]["passed"] is False
+    technical = result["strategies"]["TECHNICAL"]
+    assert technical["passes_all"] is False
+    assert technical["criteria"]["above_200dma"]["passed"] is False
 
 
 @patch("src.scanner._get_daily_bars_tradier")
@@ -350,18 +361,21 @@ def test_scan_ticker_fundamental_manual_criteria(
     mock_quote,
     mock_tradier_bars,
 ):
-    """scan_ticker FUNDAMENTAL strategy has manual criteria (passed=None)."""
+    """FUNDAMENTAL strategy has manual criteria (passed=None) for cashflow and debt/equity."""
     mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
     mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
     mock_daily_bars.return_value = [{"close": 50.0}]
     mock_avg_volume.return_value = 500_000
+    mock_sma.return_value = 45.0
+    mock_rsi.return_value = 50.0
 
-    result = scanner.scan_ticker("AAPL", "FUNDAMENTAL")
+    result = scanner.scan_ticker("AAPL")
 
-    assert result["criteria"]["requires_positive_cashflow"]["passed"] is None
-    assert "verify manually" in result["criteria"]["requires_positive_cashflow"]["note"]
-    assert result["criteria"]["max_debt_equity"]["passed"] is None
+    fundamental = result["strategies"]["FUNDAMENTAL"]
+    assert fundamental["criteria"]["requires_positive_cashflow"]["passed"] is None
+    assert "verify manually" in fundamental["criteria"]["requires_positive_cashflow"]["note"]
+    assert fundamental["criteria"]["max_debt_equity"]["passed"] is None
 
 
 @patch("src.tradier.get_historical_iv")
@@ -384,20 +398,23 @@ def test_scan_ticker_vol_premium_manual_criteria(
     mock_current_iv,
     mock_historical_iv,
 ):
-    """scan_ticker VOL_PREMIUM strategy has manual IV criteria."""
+    """VOL_PREMIUM strategy has None criteria when IV data is unavailable."""
     mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
     mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
     mock_daily_bars.return_value = [{"close": 50.0}]
     mock_avg_volume.return_value = 500_000
+    mock_sma.return_value = 45.0
+    mock_rsi.return_value = 50.0
     mock_current_iv.return_value = None
     mock_historical_iv.return_value = None
 
-    result = scanner.scan_ticker("AAPL", "VOL_PREMIUM")
+    result = scanner.scan_ticker("AAPL")
 
-    assert result["criteria"]["min_iv_hv_ratio"]["passed"] is None
-    assert "Tradier" in result["criteria"]["min_iv_hv_ratio"]["note"]
-    assert result["criteria"]["min_iv_rank"]["passed"] is None
+    vol = result["strategies"]["VOL_PREMIUM"]
+    assert vol["criteria"]["min_iv_hv_ratio"]["passed"] is None
+    assert "Tradier" in vol["criteria"]["min_iv_hv_ratio"]["note"]
+    assert vol["criteria"]["min_iv_rank"]["passed"] is None
 
 
 @patch("src.scanner._get_daily_bars_tradier")
@@ -416,88 +433,80 @@ def test_scan_ticker_etf_component_manual_criteria(
     mock_quote,
     mock_tradier_bars,
 ):
-    """scan_ticker ETF_COMPONENT strategy has manual institutional ownership criteria."""
+    """ETF_COMPONENT strategy has manual institutional ownership criteria."""
     mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
     mock_tradier_bars.return_value = [{"close": 50.0, "volume": 1_000_000}]
     mock_daily_bars.return_value = [{"close": 50.0}]
     mock_avg_volume.return_value = 1_000_000
+    mock_sma.return_value = 45.0
+    mock_rsi.return_value = 50.0
 
-    result = scanner.scan_ticker("AAPL", "ETF_COMPONENT")
+    result = scanner.scan_ticker("AAPL")
 
-    assert result["criteria"]["min_institutional_ownership_pct"]["passed"] is None
-    assert "13F filings" in result["criteria"]["min_institutional_ownership_pct"]["note"]
+    etf = result["strategies"]["ETF_COMPONENT"]
+    assert etf["criteria"]["min_institutional_ownership_pct"]["passed"] is None
+    assert "13F filings" in etf["criteria"]["min_institutional_ownership_pct"]["note"]
 
 
 @patch("src.tradier.get_quote")
-def test_scan_ticker_massive_error(mock_quote):
-    """scan_ticker returns error dict on TradierError."""
+def test_scan_ticker_fetch_error(mock_quote):
+    """scan_ticker returns error dict when quote fetch fails."""
     from src.tradier import TradierError
     mock_quote.side_effect = TradierError("Connection failed")
 
-    result = scanner.scan_ticker("AAPL", "TECHNICAL")
+    result = scanner.scan_ticker("AAPL")
 
     assert result["error"] is not None
-    assert result["passes_all"] is False
-    assert result["criteria"] == {}
-
-
-def test_scan_ticker_invalid_strategy():
-    """scan_ticker raises ValueError for unknown strategy."""
-    with pytest.raises(ValueError, match="Unknown strategy"):
-        scanner.scan_ticker("AAPL", "UNKNOWN_STRATEGY")
+    assert result["passes_any"] is False
+    assert result["strategies"] == {}
 
 
 # ---------------------------------------------------------------------------
 # scan_universe tests
 # ---------------------------------------------------------------------------
 
+def _make_result(symbol, passes_any, error=None, passed_criteria=0):
+    strategies = {}
+    if not error:
+        strategies = {
+            "TECHNICAL": {
+                "passes_all": passes_any,
+                "criteria": {f"c{i}": {"passed": True} for i in range(passed_criteria)},
+            }
+        }
+    return {
+        "symbol": symbol,
+        "passes_any": passes_any,
+        "error": error,
+        "strategies": strategies,
+    }
+
+
 @patch("src.scanner.scan_ticker")
 def test_scan_universe_returns_results(mock_scan_ticker):
     """scan_universe returns results for all tickers."""
     mock_scan_ticker.side_effect = [
-        {
-            "symbol": "AAPL",
-            "strategy": "TECHNICAL",
-            "passes_all": True,
-            "criteria": {"a": {"passed": True}},
-            "error": None,
-        },
-        {
-            "symbol": "MSFT",
-            "strategy": "TECHNICAL",
-            "passes_all": False,
-            "criteria": {"a": {"passed": False}},
-            "error": None,
-        },
+        _make_result("AAPL", passes_any=True),
+        _make_result("MSFT", passes_any=False),
     ]
 
-    results = scanner.scan_universe("TECHNICAL", tickers=["AAPL", "MSFT"])
+    results = scanner.scan_universe(tickers=["AAPL", "MSFT"])
 
     assert len(results) == 2
-    assert results[0]["symbol"] == "AAPL"
-    assert results[1]["symbol"] == "MSFT"
+    mock_scan_ticker.assert_any_call("AAPL")
+    mock_scan_ticker.assert_any_call("MSFT")
 
 
 @patch("src.scanner.scan_ticker")
 def test_scan_universe_sorts_full_passes_first(mock_scan_ticker):
-    """scan_universe sorts passes_all=True first."""
+    """scan_universe sorts passes_any=True first."""
     mock_scan_ticker.side_effect = [
-        {
-            "symbol": "PARTIAL",
-            "passes_all": False,
-            "criteria": {"a": {"passed": True}},
-            "error": None,
-        },
-        {
-            "symbol": "FULLPASS",
-            "passes_all": True,
-            "criteria": {},
-            "error": None,
-        },
+        _make_result("PARTIAL", passes_any=False, passed_criteria=1),
+        _make_result("FULLPASS", passes_any=True),
     ]
 
-    results = scanner.scan_universe("TECHNICAL", tickers=["PARTIAL", "FULLPASS"])
+    results = scanner.scan_universe(tickers=["PARTIAL", "FULLPASS"])
 
     assert results[0]["symbol"] == "FULLPASS"
     assert results[1]["symbol"] == "PARTIAL"
@@ -507,20 +516,11 @@ def test_scan_universe_sorts_full_passes_first(mock_scan_ticker):
 def test_scan_universe_sorts_errors_last(mock_scan_ticker):
     """scan_universe sorts errors last."""
     mock_scan_ticker.side_effect = [
-        {
-            "symbol": "ERROR",
-            "error": "Connection failed",
-            "passes_all": False,
-        },
-        {
-            "symbol": "OK",
-            "passes_all": True,
-            "error": None,
-            "criteria": {},
-        },
+        _make_result("ERROR", passes_any=False, error="Connection failed"),
+        _make_result("OK", passes_any=True),
     ]
 
-    results = scanner.scan_universe("TECHNICAL", tickers=["ERROR", "OK"])
+    results = scanner.scan_universe(tickers=["ERROR", "OK"])
 
     assert results[0]["symbol"] == "OK"
     assert results[1]["symbol"] == "ERROR"
@@ -529,14 +529,14 @@ def test_scan_universe_sorts_errors_last(mock_scan_ticker):
 @patch("src.scanner.scan_ticker")
 def test_scan_universe_calls_progress_callback(mock_scan_ticker):
     """scan_universe calls progress_callback with correct args."""
-    mock_scan_ticker.return_value = {"symbol": "AAPL", "passes_all": True, "error": None, "criteria": {}}
+    mock_scan_ticker.return_value = _make_result("AAPL", passes_any=True)
 
     callback_calls = []
 
     def progress_cb(i, total, symbol):
         callback_calls.append((i, total, symbol))
 
-    scanner.scan_universe("TECHNICAL", tickers=["AAPL", "MSFT"], progress_callback=progress_cb)
+    scanner.scan_universe(tickers=["AAPL", "MSFT"], progress_callback=progress_cb)
 
     assert len(callback_calls) == 2
     assert callback_calls[0] == (0, 2, "AAPL")

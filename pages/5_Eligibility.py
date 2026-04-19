@@ -5,14 +5,114 @@ from src.eligibility import (
     STRATEGIES,
     get_eligible_underlyings,
     get_ineligible_underlyings,
+    remove_underlying,
     update_eligibility,
 )
-from src.scanner import scan_ticker, scan_universe
+from src.scanner import scan_universe
 from src.massive import MassiveAuthError
 from src.db import get_conn
 from src.ui_helpers import format_si
 
 st.title("Wheel Eligibility")
+
+
+def _render_criterion(crit_name: str, crit_data: dict):
+    if crit_data.get("passed") is True:
+        icon = "✅"
+    elif crit_data.get("passed") is False:
+        icon = "❌"
+    else:
+        icon = "⚠️"
+
+    value = crit_data.get("value")
+    threshold = crit_data.get("threshold")
+    note = crit_data.get("note", "")
+
+    if isinstance(value, dict):
+        value_str = ", ".join(f"{k}={v}" for k, v in value.items() if v is not None)
+    elif isinstance(value, float):
+        value_str = format_si(value) if value > 1_000 else f"{value:.2f}"
+    else:
+        value_str = str(value) if value is not None else "—"
+
+    if isinstance(threshold, (int, float)) and threshold > 1_000:
+        threshold_str = format_si(threshold)
+    else:
+        threshold_str = str(threshold) if threshold is not None else "—"
+
+    st.write(f"{icon} **{crit_name}**: {value_str} (threshold: {threshold_str})")
+    if note:
+        st.caption(note)
+
+
+def _render_scan_result(result: dict):
+    """Render a single scan result showing all strategy evaluations."""
+    symbol = result["symbol"]
+    name = result.get("name") or ""
+    price = result.get("price")
+    market_cap_b = result.get("market_cap_b")
+    strategies = result.get("strategies", {})
+    passes_any = result.get("passes_any")
+
+    header = symbol
+    if name:
+        header += f" — {name}"
+    if price:
+        header += f" @ ${price:.2f}"
+    if market_cap_b:
+        header += f" (${market_cap_b:.1f}B)"
+
+    with st.expander(header, expanded=passes_any):
+        if result.get("error"):
+            st.error(result["error"])
+            return
+
+        for strat_name, strat_data in strategies.items():
+            strat_passes = strat_data.get("passes_all")
+            icon = "✅" if strat_passes else "❌"
+            desc = STRATEGIES[strat_name]["description"]
+            st.markdown(f"**{icon} {strat_name}** — _{desc}_")
+
+            for crit_name, crit_data in strat_data.get("criteria", {}).items():
+                _render_criterion(crit_name, crit_data)
+
+            st.divider()
+
+        passing_strategies = [s for s, d in strategies.items() if d.get("passes_all")]
+        strategy_options = passing_strategies if passing_strategies else list(STRATEGIES.keys())
+
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            selected_strategies = st.multiselect(
+                "Add with strategies",
+                options=strategy_options,
+                default=passing_strategies[:1] if passing_strategies else [],
+                key=f"add_strategy_{symbol}",
+            )
+        with col2:
+            st.write("")  # vertical alignment
+            if st.button("✨ Add to watchlist", key=f"add_scan_{symbol}"):
+                if not selected_strategies:
+                    st.warning("Select at least one strategy.")
+                else:
+                    _add_from_scan(symbol, selected_strategies)
+                    st.rerun()
+
+
+def _add_from_scan(symbol: str, strategies: list[str]):
+    """Add ticker to underlying and mark eligible with one or more strategies."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO underlying (ticker) VALUES (?)",
+            (symbol,),
+        )
+    update_eligibility(
+        ticker=symbol,
+        eligible=True,
+        strategies=strategies,
+        quality_notes=f"Added via scanner ({', '.join(strategies)})",
+    )
+
 
 tab_eligible, tab_review, tab_scan = st.tabs(["Eligible", "Review Queue", "Scan"])
 
@@ -35,31 +135,34 @@ with tab_eligible:
     if not eligible:
         st.info("No eligible tickers. Add some in the Review Queue tab.")
     else:
-        grouped: dict[str, list] = {}
+        # Sort by conviction desc, then ticker
+        eligible.sort(key=lambda r: (-r["conviction"], r["ticker"]))
+
+        st.caption(f"{len(eligible)} ticker(s)")
+        header_cols = st.columns([2, 3, 2, 3, 2])
+        header_cols[0].caption("Ticker")
+        header_cols[1].caption("Strategies")
+        header_cols[2].caption("IV Rank")
+        header_cols[3].caption("Notes")
+        header_cols[4].caption("")
+
         for row in eligible:
-            s = row["eligible_strategy"] or "—"
-            grouped.setdefault(s, []).append(row)
-
-        for strat, rows in sorted(grouped.items()):
-            desc = STRATEGIES[strat]["description"] if strat in STRATEGIES else ""
-            st.markdown(f"**{strat}** — _{desc}_")
-
-            for row in rows:
-                cols = st.columns([2, 2, 2, 3, 2])
-                cols[0].write(row["ticker"])
-                cols[1].write(
-                    f"{row['iv_rank_cached']:.1f}%" if row["iv_rank_cached"] is not None else "—"
+            cols = st.columns([2, 3, 2, 3, 2])
+            cols[0].write(row["ticker"])
+            badges = " ".join(f"`{s}`" for s in sorted(row["strategies"]))
+            cols[1].markdown(badges or "—")
+            cols[2].write(
+                f"{row['iv_rank_cached']:.1f}%" if row["iv_rank_cached"] is not None else "—"
+            )
+            cols[3].write(row["quality_notes"] or "")
+            if cols[4].button("Mark ineligible", key=f"inelig_{row['ticker']}"):
+                update_eligibility(
+                    ticker=row["ticker"],
+                    eligible=False,
+                    strategies=None,
+                    quality_notes=row["quality_notes"],
                 )
-                cols[2].write(row["last_reviewed"] or "—")
-                cols[3].write(row["quality_notes"] or "")
-                if cols[4].button("Mark ineligible", key=f"inelig_{row['ticker']}"):
-                    update_eligibility(
-                        ticker=row["ticker"],
-                        eligible=False,
-                        strategy=None,
-                        quality_notes=row["quality_notes"],
-                    )
-                    st.rerun()
+                st.rerun()
 
 # ---------------------------------------------------------------------------
 # Tab 2 — Review Queue
@@ -78,9 +181,10 @@ with tab_review:
             with st.expander(row["ticker"], expanded=False):
                 with st.form(key=f"form_{row['ticker']}"):
                     eligible_input = st.checkbox("Mark as eligible", value=False)
-                    strategy_input = st.selectbox(
-                        "Strategy",
+                    strategies_input = st.multiselect(
+                        "Strategies",
                         options=list(STRATEGIES.keys()),
+                        default=[],
                         help="\n".join(
                             f"**{k}**: {v['description']}" for k, v in STRATEGIES.items()
                         ),
@@ -92,17 +196,27 @@ with tab_review:
                     )
                     submitted = st.form_submit_button("Save")
                     if submitted:
-                        try:
-                            update_eligibility(
-                                ticker=row["ticker"],
-                                eligible=eligible_input,
-                                strategy=strategy_input if eligible_input else None,
-                                quality_notes=notes_input or None,
-                            )
-                            st.success(f"Saved {row['ticker']}")
-                            st.rerun()
-                        except ValueError as e:
-                            st.error(str(e))
+                        if eligible_input and not strategies_input:
+                            st.error("Select at least one strategy.")
+                        else:
+                            try:
+                                update_eligibility(
+                                    ticker=row["ticker"],
+                                    eligible=eligible_input,
+                                    strategies=strategies_input if eligible_input else None,
+                                    quality_notes=notes_input or None,
+                                )
+                                st.success(f"Saved {row['ticker']}")
+                                st.rerun()
+                            except ValueError as e:
+                                st.error(str(e))
+
+                if st.button("🗑 Remove", key=f"remove_{row['ticker']}"):
+                    try:
+                        remove_underlying(row["ticker"])
+                        st.rerun()
+                    except ValueError as e:
+                        st.error(str(e))
 
 # ---------------------------------------------------------------------------
 # Tab 3 — Scan
@@ -110,25 +224,12 @@ with tab_review:
 with tab_scan:
     st.subheader("Strategy Scanner")
 
-    # Check for auth error upfront
     try:
-        # Just try to get the API key to validate auth early
         from src.massive import _get_api_key
         _get_api_key()
     except MassiveAuthError as e:
         st.error(f"🔑 {str(e)}")
         st.stop()
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        strategy = st.selectbox(
-            "Select strategy",
-            options=list(STRATEGIES.keys()),
-        )
-
-    strat_info = STRATEGIES.get(strategy, {})
-    st.caption(strat_info.get("description", ""))
 
     universe_choice = st.radio(
         "Scan universe",
@@ -158,7 +259,6 @@ with tab_scan:
             st.error("Please enter at least one ticker.")
         else:
             st.session_state["scan_results"] = None
-            st.session_state["scan_strategy"] = strategy
 
             progress_bar = st.progress(0, text="Starting scan...")
 
@@ -167,124 +267,37 @@ with tab_scan:
                 progress_bar.progress(pct, text=f"Scanning {symbol}... ({i + 1}/{total})")
 
             try:
-                results = scan_universe(strategy, tickers=tickers, progress_callback=progress_callback)
+                results = scan_universe(tickers=tickers, progress_callback=progress_callback)
                 progress_bar.progress(1.0, text="Scan complete!")
                 st.session_state["scan_results"] = results
-                st.session_state["scan_strategy"] = strategy
                 st.rerun()
             except Exception as e:
                 st.error(f"Scan failed: {str(e)}")
 
-    # Display results if available
     if st.session_state.get("scan_results"):
         results = st.session_state["scan_results"]
-        strat = st.session_state.get("scan_strategy", strategy)
 
-        # Separate results
-        full_passes = [r for r in results if r.get("passes_all")]
-        partials = [r for r in results if not r.get("error") and not r.get("passes_all")]
+        full_passes = [r for r in results if r.get("passes_any")]
+        partials = [r for r in results if not r.get("error") and not r.get("passes_any")]
         errors = [r for r in results if r.get("error")]
 
-        # Show counts
         col1, col2, col3 = st.columns(3)
         col1.metric("✅ Full Pass", len(full_passes))
         col2.metric("⚠️ Partial", len(partials))
         col3.metric("❌ Error", len(errors))
 
-        # Full passes section
         if full_passes:
             st.subheader("✅ Full Passes")
             for result in full_passes:
-                _render_scan_result(result, strat)
+                _render_scan_result(result)
 
-        # Partial section
         if partials:
             st.subheader("⚠️ Partial Matches")
             for result in partials:
-                _render_scan_result(result, strat)
+                _render_scan_result(result)
 
-        # Errors section
         if errors:
             st.subheader("❌ Errors")
             for result in errors:
                 with st.expander(f"{result['symbol']} — {result.get('error')}"):
                     st.error(result.get("error"))
-
-
-def _render_scan_result(result: dict, strategy: str):
-    """Render a single scan result with criterion details."""
-    symbol = result["symbol"]
-    name = result.get("name") or ""
-    price = result.get("price")
-    market_cap_b = result.get("market_cap_b")
-    criteria = result.get("criteria", {})
-    passes_all = result.get("passes_all")
-
-    # Format header
-    header = f"{symbol}"
-    if name:
-        header += f" — {name}"
-    if price:
-        header += f" @ ${price:.2f}"
-    if market_cap_b:
-        header += f" (${market_cap_b:.1f}B)"
-
-    with st.expander(header, expanded=passes_all):
-        # Render criteria table
-        for crit_name, crit_data in criteria.items():
-            passed = crit_data.get("passed")
-            value = crit_data.get("value")
-            threshold = crit_data.get("threshold")
-            note = crit_data.get("note", "")
-
-            # Icon
-            if passed is True:
-                icon = "✅"
-            elif passed is False:
-                icon = "❌"
-            else:
-                icon = "⚠️"
-
-            # Format value
-            if isinstance(value, dict):
-                value_str = ", ".join(f"{k}={v}" for k, v in value.items() if v is not None)
-            elif isinstance(value, float):
-                value_str = format_si(value) if value > 1_000 else f"{value:.2f}"
-            else:
-                value_str = str(value) if value is not None else "—"
-
-            # Format threshold
-            if isinstance(threshold, (int, float)) and threshold > 1_000:
-                threshold_str = format_si(threshold)
-            else:
-                threshold_str = str(threshold) if threshold is not None else "—"
-
-            st.write(
-                f"{icon} **{crit_name}**: {value_str} (threshold: {threshold_str})"
-            )
-            if note:
-                st.caption(note)
-
-        # Add to watchlist button
-        if not result.get("error"):
-            if st.button(
-                "✨ Add to watchlist & mark eligible",
-                key=f"add_scan_{symbol}",
-            ):
-                _add_from_scan(symbol, strategy)
-                st.rerun()
-
-
-def _add_from_scan(symbol: str, strategy: str):
-    """Add ticker to underlying and mark eligible."""
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO underlying (ticker) VALUES (?)",
-            (symbol,),
-        )
-    update_eligibility(
-        ticker=symbol,
-        eligible=True,
-        strategy=strategy,
-        quality_notes=f"Added via scanner ({strategy})",
-    )

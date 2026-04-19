@@ -40,6 +40,28 @@ CREATE TABLE underlying (
 
 **`quality_notes`** and **`last_reviewed`** are set automatically by `update_eligibility()` in `src/eligibility.py` — do not update them directly.
 
+**`eligible_strategy`** is kept for backward compatibility; the canonical source of strategies is now `underlying_strategy`. Will be removed once all reads are migrated.
+
+---
+
+### `underlying_strategy`
+
+Maps an underlying to one or more strategy frameworks that justify its eligibility. A ticker with two rows here has conviction=2.
+
+```sql
+CREATE TABLE underlying_strategy (
+    underlying_id  TEXT NOT NULL REFERENCES underlying(underlying_id),
+    strategy       TEXT NOT NULL CHECK(strategy IN ('FUNDAMENTAL','TECHNICAL','ETF_COMPONENT','VOL_PREMIUM')),
+    quality_notes  TEXT,        -- per-strategy rationale (optional)
+    added_date     DATE NOT NULL,
+    PRIMARY KEY (underlying_id, strategy)
+);
+```
+
+**`conviction`** is derived as `COUNT(*)` from this table for a given `underlying_id`. Range 1–4. Higher conviction = more strategy frameworks agree the ticker is wheelable.
+
+When `eligibility.update_eligibility(eligible=False)` is called, all rows for that `underlying_id` are deleted here and `underlying.wheel_eligible` is set to 0. `remove_strategy()` removes a single row and auto-clears `wheel_eligible` if no rows remain.
+
 ---
 
 ### `cycle`
@@ -178,3 +200,4 @@ Schema changes are managed in `db/migrations/`. Each migration file is numbered 
 
 - `001_add_earnings_date.sql` — Adds `earnings_date` column to `underlying` for earnings tracking.
 - `003_add_wheel_eligibility.sql` — Adds `wheel_eligible`, `eligible_strategy`, `quality_notes`, `last_reviewed` to `underlying`.
+- `004_underlying_strategies.sql` — Creates `underlying_strategy` join table for multi-strategy eligibility; migrates existing single-strategy rows.

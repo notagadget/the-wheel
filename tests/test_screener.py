@@ -22,6 +22,7 @@ def _seed(
     strategy: str = "FUNDAMENTAL",
 ):
     from src.db import get_conn
+    from datetime import date
     with get_conn() as conn:
         conn.execute(
             "INSERT OR IGNORE INTO underlying "
@@ -29,6 +30,12 @@ def _seed(
             " wheel_eligible, eligible_strategy) VALUES (?,?,?,?,?,?)",
             (ticker, ticker, iv_rank, earnings_date, wheel_eligible, strategy),
         )
+        if wheel_eligible and strategy:
+            conn.execute(
+                "INSERT OR IGNORE INTO underlying_strategy "
+                "(underlying_id, strategy, added_date) VALUES (?,?,?)",
+                (ticker, strategy, date.today().isoformat()),
+            )
 
 
 def _open_put(ticker: str, iv_rank: float = 80.0) -> str:
@@ -147,7 +154,7 @@ def test_result_has_expected_keys():
     expected_keys = {
         "underlying_id", "ticker", "iv_rank_cached", "iv_pct_cached",
         "iv_current", "earnings_date", "notes", "iv_updated", "has_earnings_soon",
-        "eligible_strategy", "last_reviewed",
+        "strategies", "conviction", "last_reviewed",
     }
     assert expected_keys.issubset(results[0].keys())
 
@@ -192,3 +199,51 @@ def test_screener_excludes_ineligible_tickers():
 
     assert "GOOD" in tickers
     assert "BAD" not in tickers
+
+
+def test_result_includes_strategies_and_conviction():
+    _seed("RKLB", iv_rank=70.0, strategy="FUNDAMENTAL")
+    results = screener.get_screening_candidates(min_iv_rank=50.0)
+    assert len(results) == 1
+    r = results[0]
+    assert r["strategies"] == ["FUNDAMENTAL"]
+    assert r["conviction"] == 1
+
+
+# ---------------------------------------------------------------------------
+# get_screening_candidates_by_strategy
+# ---------------------------------------------------------------------------
+
+def test_by_strategy_filters_to_matching_tickers():
+    _seed("FUND", iv_rank=70.0, strategy="FUNDAMENTAL")
+    _seed("TECH", iv_rank=70.0, strategy="TECHNICAL")
+
+    results = screener.get_screening_candidates_by_strategy("FUNDAMENTAL", min_iv_rank=40.0)
+    tickers = {r["ticker"] for r in results}
+
+    assert "FUND" in tickers
+    assert "TECH" not in tickers
+
+
+def test_by_strategy_ticker_with_two_strategies_appears_in_both():
+    from datetime import date
+    from src.db import get_conn
+
+    _seed("BOTH", iv_rank=70.0, strategy="FUNDAMENTAL")
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO underlying_strategy "
+            "(underlying_id, strategy, added_date) VALUES (?,?,?)",
+            ("BOTH", "TECHNICAL", date.today().isoformat()),
+        )
+
+    fund_results = screener.get_screening_candidates_by_strategy("FUNDAMENTAL", min_iv_rank=40.0)
+    tech_results = screener.get_screening_candidates_by_strategy("TECHNICAL", min_iv_rank=40.0)
+
+    assert any(r["ticker"] == "BOTH" for r in fund_results)
+    assert any(r["ticker"] == "BOTH" for r in tech_results)
+
+    # conviction should be 2 in both
+    both_row = next(r for r in fund_results if r["ticker"] == "BOTH")
+    assert both_row["conviction"] == 2
+    assert set(both_row["strategies"]) == {"FUNDAMENTAL", "TECHNICAL"}
