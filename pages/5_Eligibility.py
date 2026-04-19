@@ -1,5 +1,8 @@
 """Eligibility page — manage wheel_eligible flag and strategy assignment."""
 
+import time
+import threading
+import traceback
 import streamlit as st
 from src.eligibility import (
     STRATEGIES,
@@ -9,7 +12,7 @@ from src.eligibility import (
     update_eligibility,
 )
 from src.scanner import scan_universe
-from src.massive import MassiveAuthError
+from src.massive import MassiveAuthError, get_sp500_tickers
 from src.db import get_conn
 from src.ui_helpers import format_si
 
@@ -397,28 +400,84 @@ with tab_scan:
     else:
         tickers = None  # Use default S&P 500
 
-    if st.button("▶ Run Scan", type="primary"):
+    # scan_state is a plain mutable dict — mutations from the background thread
+    # are visible to the main thread because both share the same object reference.
+    # Direct st.session_state writes from a thread don't work (disconnected context).
+    if "scan_state" not in st.session_state:
+        st.session_state["scan_state"] = {"running": False, "stop_event": None}
+
+    scan = st.session_state["scan_state"]
+
+    col_run, col_stop = st.columns([3, 1])
+
+    with col_run:
+        run_clicked = st.button(
+            "▶ Run Scan",
+            type="primary",
+            disabled=scan["running"],
+        )
+
+    with col_stop:
+        stop_clicked = st.button(
+            "⏹ Stop",
+            disabled=not scan["running"],
+        )
+
+    if stop_clicked:
+        if scan.get("stop_event"):
+            scan["stop_event"].set()
+        scan["running"] = False
+        st.rerun()
+
+    if run_clicked:
         if universe_choice == "Custom list" and not tickers:
             st.error("Please enter at least one ticker.")
         else:
-            st.session_state["scan_results"] = None
+            if tickers:
+                ticker_count = len(tickers)
+            else:
+                ticker_count = len(get_sp500_tickers())
 
-            progress_bar = st.progress(0, text="Starting scan...")
+            stop_event = threading.Event()
+            scan.clear()
+            scan.update({
+                "running": True,
+                "stop_event": stop_event,
+                "progress": (0, ticker_count, ""),
+                "results": None,
+                "error": None,
+            })
 
-            def progress_callback(i, total, symbol):
-                pct = min((i + 1) / total, 0.99) if total > 0 else 0
-                progress_bar.progress(pct, text=f"Scanning {symbol}... ({i + 1}/{total})")
+            def _run_scan():
+                def progress_callback(i, total, symbol):
+                    scan["progress"] = (i, total, symbol)
 
-            try:
-                results = scan_universe(tickers=tickers, progress_callback=progress_callback)
-                progress_bar.progress(1.0, text="Scan complete!")
-                st.session_state["scan_results"] = results
-                st.rerun()
-            except Exception as e:
-                st.error(f"Scan failed: {str(e)}")
+                try:
+                    results = scan_universe(
+                        tickers=tickers,
+                        progress_callback=progress_callback,
+                        stop_event=stop_event,
+                    )
+                    scan["results"] = results
+                except Exception as e:
+                    scan["error"] = f"{type(e).__name__}: {str(e)}\n\n{traceback.format_exc()}"
+                finally:
+                    scan["running"] = False
 
-    if st.session_state.get("scan_results"):
-        results = st.session_state["scan_results"]
+            threading.Thread(target=_run_scan, daemon=True).start()
+
+    if scan.get("error"):
+        st.error(f"Scan failed: {scan['error']}")
+
+    if scan["running"]:
+        i, total, symbol = scan.get("progress", (0, 0, ""))
+        pct = min((i + 1) / total, 0.99) if total > 0 else 0
+        st.progress(pct, text=f"Scanning {symbol}... ({i + 1}/{total})")
+        time.sleep(0.5)
+        st.rerun()
+
+    if scan.get("results"):
+        results = scan["results"]
 
         full_passes = [r for r in results if r.get("passes_any")]
         partials = [r for r in results if not r.get("error") and not r.get("passes_any")]

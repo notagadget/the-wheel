@@ -6,6 +6,7 @@ Uses Tradier for quotes and price history; Massive for company info only.
 """
 
 import time
+import threading
 from typing import Callable, Optional
 from functools import lru_cache
 from datetime import date, timedelta
@@ -270,6 +271,7 @@ def scan_ticker(symbol: str) -> dict:
 def scan_universe(
     tickers: Optional[list[str]] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    stop_event: Optional[threading.Event] = None,
 ) -> list[dict]:
     """
     Scan a universe of tickers against all strategies.
@@ -277,6 +279,7 @@ def scan_universe(
     Defaults tickers to get_sp500_tickers().
     Calls progress_callback(i, total, symbol) if provided.
     Sleeps 1s between calls (Tradier rate limit).
+    If stop_event is set, exits after current ticker (early stop).
     Sorts results: passes_any=True first, then by most criteria passing, errors last.
     """
     if tickers is None:
@@ -284,6 +287,8 @@ def scan_universe(
 
     results = []
     for i, symbol in enumerate(tickers):
+        if stop_event and stop_event.is_set():
+            break
         if progress_callback:
             progress_callback(i, len(tickers), symbol)
 

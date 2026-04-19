@@ -525,6 +525,20 @@ This is a VIRTUAL GENERATED column in SQLite. It is never set directly.
 - Never ALTER a VIRTUAL GENERATED column — drop and recreate the table
 - All migrations must be idempotent (safe to run multiple times)
 
+## UI patterns — scanner stop/resume
+
+`scan_universe` accepts an optional `threading.Event` `stop_event` parameter. When set, the scan exits gracefully after the current ticker completes.
+
+The Eligibility page runs the scan in a daemon thread, polling progress via `st.session_state` keys:
+- `scan_running`: boolean, true while scanning
+- `scan_stop_event`: the threading.Event instance
+- `scan_progress`: tuple `(i, total, symbol)` updated by progress_callback
+- `scan_results`: final results list (or None while running)
+
+The UI exposes a Stop button that sets `stop_event` and clears `scan_running`. Partial results are available immediately after stop; the full page reruns periodically to reflect progress.
+
+**Note**: Streamlit's session state is not thread-safe by default. For single-user local apps this is fine in practice, but don't run this in multi-user deployments without adding locks.
+
 ---
 
 <!-- SOURCE: db/schema.sql -->
