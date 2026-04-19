@@ -6,7 +6,7 @@
 
 ## Profiling Results
 
-### Per-Ticker Breakdown (from latest scan)
+### Baseline (pre-optimization)
 - Common data fetch: 475ms (24%)
   - `daily_bars` (Tradier): 323ms ⚠️
   - `ticker_details` (Massive): 152ms
@@ -15,24 +15,56 @@
     - `current_iv`: 744ms (includes expirations 170ms + options_chain 280ms + quote 170ms)
     - `historical_iv`: 363ms
   - TECHNICAL: 451ms
-    - `sma` (Massive): 199ms
-    - `daily_bars_30d` (Massive): 152ms
+    - `sma` (Massive): 199ms ← eliminated
+    - `daily_bars_30d` (Massive): 152ms ← eliminated
   - ETF_COMPONENT: 115ms
     - `institutional_ownership` (yfinance): 115ms
+- **Total: ~2000ms/ticker + 1s sleep**
+
+### After Tier 1 Session 1 (Fast Mode on, 12-ticker run, 2026-04-19)
+- **Avg/ticker: 589ms | Total: 19.5s** (sleep still present)
+
+### After Tier 1 Session 2 — sleep removed (Fast Mode on, 28-ticker run, 2026-04-19)
+- `daily_bars` (Tradier): 331ms (57% of ticker time)
+- `ticker_details` (Massive): 153ms (26%)
+- `institutional_ownership` (yfinance): 101ms (17%)
+- SMA, RSI, avg_volume: 0ms (computed locally)
+- Batch quotes: 323ms (amortized across all tickers)
+- **Avg/ticker: 586ms | Min: 505ms | Max: 761ms | Total: 16.7s**
+- **Projection (100 tickers, Fast Mode): ~59s ✅ sub-1-minute target hit**
+- Projection (100 tickers, full scan w/ VOL_PREMIUM): ~170s = 2.8 min (needs parallelization)
 
 ### Known Constraints
 - **Streamlit reruns script on every interaction** → clears `@lru_cache` between runs
 - **Tradier batch endpoints**: `/v1/markets/quotes` supports comma-separated symbols ✓; `/v1/markets/history` does NOT
 - **Rate limits**: Tradier 250 req/hr (~4 req/sec), Massive unknown, yfinance generous
+- **Sequential Tradier calls in Fast Mode**: 1 call/ticker at 589ms/ticker = 1.7 req/sec — well under limit, sleep is unnecessary
 - **One-time optimizations done**:
   - ✓ Batch quotes (saves ~2.1s per scan)
   - ✓ Added `@lru_cache` to `get_quote`, `get_historical_iv`, `get_expirations`, `get_options_chain`
   - ✓ Added caching to Massive functions (`ticker_details`, `get_sma`, `get_daily_bars`)
   - ✓ Added caching to yfinance (`get_institutional_ownership_pct`)
+  - ✓ SMA-200 computed locally from Tradier bars (saves 199ms/ticker)
+  - ✓ RSI bars sourced from Tradier daily_bars (saves 152ms/ticker)
+  - ✓ Fast Mode toggle skips VOL_PREMIUM (saves ~1100ms/ticker)
 
 ---
 
 ## Tier 1: Quick Wins (Start Here)
+
+### 1.0 Remove Inter-Ticker Sleep ✅ DONE
+**Problem**: `time.sleep(1.0)` in `scan_universe()` adds 100s to a 100-ticker scan. Originally needed to respect Tradier's 250 req/hr limit, but with batch quotes and Fast Mode the actual Tradier rate in Fast Mode is only ~1.7 req/sec — far under the 4/sec ceiling.
+
+**Solution**: Remove the sleep entirely. If rate-limit 429s appear, add exponential backoff in `tradier._get()` instead.
+
+**Files to touch**:
+- `src/scanner.py`: Remove `time.sleep(1.0)` from `scan_universe()` loop
+
+**Impact**: Fast Mode 100-ticker scan: 159s → ~59s (sub-1-minute target hit)  
+**Effort**: 5 minutes  
+**Risk**: None at current sequential throughput; add backoff only if 429s actually occur
+
+---
 
 ### 1.1 Make Caching Work in Streamlit (`@st.cache_data`)
 **Problem**: `@lru_cache` clears when Streamlit reruns the script (on every button click, slider change, etc.)

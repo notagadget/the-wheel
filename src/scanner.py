@@ -28,6 +28,14 @@ def _format_si(value: float) -> str:
     return f"{value:.0f}"
 
 
+def _compute_sma(bars: list[dict], window: int = 200) -> float | None:
+    """Compute simple moving average from the last `window` closing prices."""
+    closes = [b["close"] for b in bars if b.get("close") is not None]
+    if len(closes) < window:
+        return None
+    return sum(closes[-window:]) / window
+
+
 @lru_cache(maxsize=256)
 def _get_daily_bars_tradier(symbol: str, days: int) -> list[dict]:
     """Fetch daily bars from Tradier (cheaper than Massive)."""
@@ -86,7 +94,7 @@ def _fetch_common_data(symbol: str, quotes_cache: dict | None = None) -> dict:
         return {"error": str(e), "_fetch_profile": fetch_profile}
 
     t = time.time()
-    daily_bars = _get_daily_bars_tradier(symbol, days=45)
+    daily_bars = _get_daily_bars_tradier(symbol, days=200)
     fetch_profile["daily_bars_ms"] = (time.time() - t) * 1000
 
     t = time.time()
@@ -144,20 +152,18 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
     }
 
     if strategy == "TECHNICAL":
-        t = time.time()
-        sma_200 = massive.get_sma(symbol, window=200)
-        strat_profile["sma_ms"] = (time.time() - t) * 1000
+        # SMA computed locally from already-fetched Tradier bars — no extra API call
+        sma_200 = _compute_sma(common_data["daily_bars"], window=200)
         criteria["above_200dma"] = {
             "passed": price > sma_200 if price and sma_200 else None,
             "value": sma_200,
             "threshold": "price > 200-day SMA",
-            "note": f"Current SMA: ${sma_200:.2f}" if sma_200 else "Unable to fetch SMA",
+            "note": f"Current SMA: ${sma_200:.2f}" if sma_200 else "Insufficient bar data for SMA-200",
         }
 
         rsi_min = strat_config.get("rsi_min", 30.0)
-        t = time.time()
-        daily_bars_rsi = massive.get_daily_bars(symbol, days=30)
-        strat_profile["daily_bars_30d_ms"] = (time.time() - t) * 1000
+        # Use last 30 bars from already-fetched Tradier data — no extra API call
+        daily_bars_rsi = list(common_data["daily_bars"][-30:]) if common_data["daily_bars"] else []
         rsi = massive.compute_rsi(daily_bars_rsi, period=14) if daily_bars_rsi else None
         criteria["rsi"] = {
             "passed": rsi >= rsi_min if rsi else None,
@@ -266,7 +272,12 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
     return {"criteria": criteria, "passes_all": passes_all, "_strategy_profile": strat_profile}
 
 
-def scan_ticker(symbol: str, quotes_cache: dict | None = None, hiv_cache: dict | None = None) -> dict:
+def scan_ticker(
+    symbol: str,
+    quotes_cache: dict | None = None,
+    hiv_cache: dict | None = None,
+    skip_strategies: set[str] | None = None,
+) -> dict:
     """
     Scan a single ticker against all strategies.
 
@@ -302,6 +313,7 @@ def scan_ticker(symbol: str, quotes_cache: dict | None = None, hiv_cache: dict |
     strategies = {
         strategy: _evaluate_strategy(symbol, strategy, common_data, hiv_cache=hiv_cache)
         for strategy in STRATEGIES
+        if not skip_strategies or strategy not in skip_strategies
     }
     eval_ms = (time.time() - eval_start) * 1000
 
@@ -323,6 +335,7 @@ def scan_universe(
     tickers: Optional[list[str]] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     stop_event: Optional[threading.Event] = None,
+    skip_strategies: set[str] | None = None,
 ) -> tuple[list[dict], dict]:
     """
     Scan a universe of tickers against all strategies.
@@ -353,7 +366,7 @@ def scan_universe(
     batch_quote_start = time.time()
     quotes_cache = tradier.get_quotes(tickers)
     batch_quote_ms = (time.time() - batch_quote_start) * 1000
-    print(f"[BATCH QUOTES] Fetched {len(quotes_cache)} quotes in {batch_quote_ms:.0f}ms")
+
 
     for i, symbol in enumerate(tickers):
         if stop_event and stop_event.is_set():
@@ -361,7 +374,7 @@ def scan_universe(
         if progress_callback:
             progress_callback(i, len(tickers), symbol)
 
-        result = scan_ticker(symbol, quotes_cache=quotes_cache, hiv_cache=None)
+        result = scan_ticker(symbol, quotes_cache=quotes_cache, hiv_cache=None, skip_strategies=skip_strategies)
         results.append(result)
         if "_timing" in result:
             timings.append(result["_timing"]["total_ms"])
@@ -380,8 +393,6 @@ def scan_universe(
                     if key not in strategy_profiles[strategy_name]:
                         strategy_profiles[strategy_name][key] = []
                     strategy_profiles[strategy_name][key].append(val)
-
-        time.sleep(1.0)
 
     elapsed = (time.time() - start_time) * 1000
 

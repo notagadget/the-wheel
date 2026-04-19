@@ -266,13 +266,14 @@ def test_scan_ticker_technical_all_pass(
     mock_quote,
     mock_tradier_bars,
 ):
-    """TECHNICAL strategy passes when price > SMA, RSI in range, volume/price/cap ok."""
+    """TECHNICAL strategy passes when price > SMA-200, RSI in range, volume/price/cap ok."""
     mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test Corp", "market_cap_b": 5.0, "exchange": "XNYS"}
-    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
+    # 200 bars at 45.0 → SMA-200 = 45.0, price 50.0 > SMA ✓
+    mock_tradier_bars.return_value = [{"close": 45.0, "volume": 500_000}] * 200
     mock_daily_bars.return_value = [{"close": float(50 + i)} for i in range(16)]
     mock_avg_volume.return_value = 500_000
-    mock_sma.return_value = 45.0  # Price 50 > SMA 45
+    mock_sma.return_value = 45.0
     mock_rsi.return_value = 50.0  # RSI between 35-65
 
     result = scanner.scan_ticker("AAPL")
@@ -330,13 +331,14 @@ def test_scan_ticker_below_200dma(
     mock_quote,
     mock_tradier_bars,
 ):
-    """TECHNICAL fails above_200dma when price < SMA."""
+    """TECHNICAL fails above_200dma when price < SMA-200."""
     mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
-    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
+    # 200 bars at 55.0 → SMA-200 = 55.0, price 50.0 < SMA ✗
+    mock_tradier_bars.return_value = [{"close": 55.0, "volume": 500_000}] * 200
     mock_daily_bars.return_value = [{"close": 50.0}]
     mock_avg_volume.return_value = 500_000
-    mock_sma.return_value = 55.0  # Price 50 < SMA 55
+    mock_sma.return_value = 55.0
     mock_rsi.return_value = 50.0
 
     result = scanner.scan_ticker("AAPL")
@@ -522,6 +524,32 @@ def test_scan_ticker_etf_component_unavailable(
     etf = result["strategies"]["ETF_COMPONENT"]
     assert etf["criteria"]["min_institutional_ownership_pct"]["passed"] is None
     assert "yfinance unavailable" in etf["criteria"]["min_institutional_ownership_pct"]["note"]
+
+
+@patch("src.yfinance_data.get_institutional_ownership_pct")
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
+@patch("src.massive.compute_avg_volume")
+@patch("src.massive.get_ticker_details")
+def test_scan_ticker_skip_strategies(
+    mock_ticker_details,
+    mock_avg_volume,
+    mock_quote,
+    mock_tradier_bars,
+    mock_inst_ownership,
+):
+    """skip_strategies excludes the specified strategies from results."""
+    mock_quote.return_value = {"last": 50.0}
+    mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
+    mock_avg_volume.return_value = 500_000
+    mock_inst_ownership.return_value = 72.0
+
+    result = scanner.scan_ticker("AAPL", skip_strategies={"VOL_PREMIUM"})
+
+    assert "VOL_PREMIUM" not in result["strategies"]
+    assert "TECHNICAL" in result["strategies"]
+    assert "ETF_COMPONENT" in result["strategies"]
 
 
 @patch("src.tradier.get_quote")
