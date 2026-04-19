@@ -1,5 +1,5 @@
 """
-scanner.py — Evaluates tickers against wheel strategy criteria.
+scanner.py — Evaluates tickers against all wheel strategy criteria.
 
 Pure screening logic, no DB writes. Returns criterion results as dicts.
 Uses Tradier for quotes and price history; Massive for company info only.
@@ -60,49 +60,43 @@ def _get_daily_bars_tradier(symbol: str, days: int) -> list[dict]:
     ]
 
 
-def scan_ticker(symbol: str, strategy: str) -> dict:
+def _fetch_common_data(symbol: str) -> dict:
     """
-    Scan a single ticker against a strategy's criteria.
-
-    Returns dict with keys:
-    - symbol, strategy, error (if failed), criteria, passes_all, name, price, market_cap_b
-
-    Each criterion result is {passed: bool|None, value: any, threshold: any, note: str}.
-    passed=None means manual review required.
-    Raises ValueError for unknown strategy.
-    On MassiveError fetching prev_close or ticker_details, returns early with error dict.
+    Fetch data needed by all strategies: quote, ticker details, daily bars.
+    Returns error key if the fetch fails, otherwise price/name/market_cap_b/daily_bars/avg_volume.
     """
-    if strategy not in STRATEGIES:
-        raise ValueError(f"Unknown strategy: {strategy}")
-
-    strat_config = STRATEGIES[strategy]
-
-    # Fetch data upfront — if basic data fails, return error
     try:
-        # Use Tradier for quote (faster, included in subscription)
         quote = tradier.get_quote(symbol)
         price = quote.get("last")
-
-        # Use Massive only for company details (name, market cap)
         ticker_details = massive.get_ticker_details(symbol)
     except (tradier.TradierError, massive.MassiveError) as e:
-        return {
-            "symbol": symbol,
-            "strategy": strategy,
-            "error": str(e),
-            "criteria": {},
-            "passes_all": False,
-            "name": None,
-            "price": None,
-            "market_cap_b": None,
-        }
+        return {"error": str(e)}
 
-    market_cap_b = ticker_details.get("market_cap_b")
-    name = ticker_details.get("name")
+    daily_bars = _get_daily_bars_tradier(symbol, days=45)
+    avg_volume = massive.compute_avg_volume(daily_bars)
+
+    return {
+        "error": None,
+        "price": price,
+        "market_cap_b": ticker_details.get("market_cap_b"),
+        "name": ticker_details.get("name"),
+        "daily_bars": daily_bars,
+        "avg_volume": avg_volume,
+    }
+
+
+def _evaluate_strategy(symbol: str, strategy: str, common_data: dict) -> dict:
+    """
+    Evaluate a single strategy given pre-fetched common data.
+    Returns {criteria, passes_all}.
+    """
+    strat_config = STRATEGIES[strategy]
+    price = common_data["price"]
+    market_cap_b = common_data["market_cap_b"]
+    avg_volume = common_data["avg_volume"]
 
     criteria = {}
 
-    # Common criteria (all strategies)
     criteria["min_price"] = {
         "passed": price >= strat_config["min_price"] if price else None,
         "value": price,
@@ -121,10 +115,6 @@ def scan_ticker(symbol: str, strategy: str) -> dict:
         "threshold": strat_config["min_market_cap_b"],
         "note": "",
     }
-
-    # Compute min_avg_volume (45 calendar days ≈ 30 trading days)
-    daily_bars = _get_daily_bars_tradier(symbol, days=45)
-    avg_volume = massive.compute_avg_volume(daily_bars)
     criteria["min_avg_volume"] = {
         "passed": avg_volume >= strat_config["min_avg_volume"] if avg_volume else None,
         "value": avg_volume,
@@ -132,9 +122,7 @@ def scan_ticker(symbol: str, strategy: str) -> dict:
         "note": "",
     }
 
-    # Strategy-specific criteria
     if strategy == "TECHNICAL":
-        # Get 200-day SMA
         sma_200 = massive.get_sma(symbol, window=200)
         criteria["above_200dma"] = {
             "passed": price > sma_200 if price and sma_200 else None,
@@ -143,7 +131,6 @@ def scan_ticker(symbol: str, strategy: str) -> dict:
             "note": f"Current SMA: ${sma_200:.2f}" if sma_200 else "Unable to fetch SMA",
         }
 
-        # Compute RSI from daily bars
         rsi_min = strat_config.get("rsi_min", 30.0)
         daily_bars_rsi = massive.get_daily_bars(symbol, days=30)
         rsi = massive.compute_rsi(daily_bars_rsi, period=14) if daily_bars_rsi else None
@@ -177,9 +164,6 @@ def scan_ticker(symbol: str, strategy: str) -> dict:
         }
 
     elif strategy == "VOL_PREMIUM":
-        # Compute IV/HV ratio: current IV ÷ current (realized) HV
-        # Note: get_current_iv returns decimal (0.35), get_historical_iv returns % (35.0)
-        # Convert current IV to percentage for consistent units
         min_iv_hv = strat_config.get("min_iv_hv_ratio", 1.2)
         iv_hv_ratio = None
         note = ""
@@ -190,10 +174,10 @@ def scan_ticker(symbol: str, strategy: str) -> dict:
             from src.market_data import get_current_iv
             current_iv = get_current_iv(symbol)
             if current_iv:
-                current_iv_pct = current_iv * 100  # convert decimal to percentage
+                current_iv_pct = current_iv * 100
                 hv_series = tradier.get_historical_iv(symbol, days=365)
                 if hv_series:
-                    current_hv = hv_series[-1]["iv"]  # most recent HV (already in %)
+                    current_hv = hv_series[-1]["iv"]
                     if current_hv and current_hv > 0:
                         iv_hv_ratio = round(current_iv_pct / current_hv, 2)
         except Exception as e:
@@ -210,14 +194,14 @@ def scan_ticker(symbol: str, strategy: str) -> dict:
             "threshold": min_iv_hv,
             "note": note,
         }
-        # Compute IV rank: (current_iv - 52w_low) / (52w_high - 52w_low) * 100
+
         min_iv_rank = strat_config.get("min_iv_rank", 40.0)
         iv_rank = None
         iv_rank_note = ""
         if current_iv and hv_series:
             try:
                 from src.market_data import compute_iv_metrics
-                current_iv_pct = current_iv * 100  # convert decimal to percentage
+                current_iv_pct = current_iv * 100
                 metrics = compute_iv_metrics(hv_series, current_iv_pct)
                 iv_rank = metrics.get("iv_rank")
                 iv_52w_high = metrics.get("iv_52w_high")
@@ -236,38 +220,64 @@ def scan_ticker(symbol: str, strategy: str) -> dict:
             "note": iv_rank_note,
         }
 
-    # passes_all: True only if every criterion where passed is not None is True
     passes_all = all(
         crit["passed"] is True
         for crit in criteria.values()
         if crit["passed"] is not None
     ) and any(crit["passed"] is not None for crit in criteria.values())
 
+    return {"criteria": criteria, "passes_all": passes_all}
+
+
+def scan_ticker(symbol: str) -> dict:
+    """
+    Scan a single ticker against all strategies.
+
+    Fetches market data once, then evaluates every strategy in STRATEGIES.
+    Returns dict with keys:
+    - symbol, name, price, market_cap_b, error
+    - strategies: {strategy_name: {criteria, passes_all}}
+    - passes_any: True if at least one strategy has passes_all=True
+    """
+    common_data = _fetch_common_data(symbol)
+    if common_data.get("error"):
+        return {
+            "symbol": symbol,
+            "error": common_data["error"],
+            "strategies": {},
+            "passes_any": False,
+            "name": None,
+            "price": None,
+            "market_cap_b": None,
+        }
+
+    strategies = {
+        strategy: _evaluate_strategy(symbol, strategy, common_data)
+        for strategy in STRATEGIES
+    }
+
     return {
         "symbol": symbol,
-        "strategy": strategy,
         "error": None,
-        "criteria": criteria,
-        "passes_all": passes_all,
-        "name": name,
-        "price": price,
-        "market_cap_b": market_cap_b,
+        "strategies": strategies,
+        "passes_any": any(s["passes_all"] for s in strategies.values()),
+        "name": common_data["name"],
+        "price": common_data["price"],
+        "market_cap_b": common_data["market_cap_b"],
     }
 
 
 def scan_universe(
-    strategy: str,
     tickers: Optional[list[str]] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> list[dict]:
     """
-    Scan a universe of tickers against a strategy.
+    Scan a universe of tickers against all strategies.
 
     Defaults tickers to get_sp500_tickers().
     Calls progress_callback(i, total, symbol) if provided.
-    Sleeps 0.25s between calls (free tier rate limit).
-    Sorts results: passes_all=True first, then by descending count of passed=True,
-    errors last.
+    Sleeps 1s between calls (Tradier rate limit).
+    Sorts results: passes_any=True first, then by most criteria passing, errors last.
     """
     if tickers is None:
         tickers = massive.get_sp500_tickers()
@@ -277,27 +287,19 @@ def scan_universe(
         if progress_callback:
             progress_callback(i, len(tickers), symbol)
 
-        try:
-            result = scan_ticker(symbol, strategy)
-            results.append(result)
-        except ValueError:
-            # Unknown strategy — should not happen if called correctly
-            raise
-
+        results.append(scan_ticker(symbol))
         time.sleep(1.0)  # Rate limit (Tradier: 250 req/hr ≈ 4 req/sec)
 
-    # Sort: passes_all=True first, then by passed count desc, errors last
     def sort_key(r):
         if r.get("error"):
-            return (2, 0)  # errors last
-        if r.get("passes_all"):
-            return (0, 999)  # full passes first (high sort value)
-        # Partial: count True criteria
-        passed_count = sum(
-            1 for crit in r.get("criteria", {}).values()
-            if crit.get("passed") is True
+            return (2, 0)
+        if r.get("passes_any"):
+            return (0, 999)
+        total_passed = sum(
+            sum(1 for c in s.get("criteria", {}).values() if c.get("passed") is True)
+            for s in r.get("strategies", {}).values()
         )
-        return (1, -passed_count)  # partials by passed count desc
+        return (1, -total_passed)
 
     results.sort(key=sort_key)
     return results
