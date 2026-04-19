@@ -22,6 +22,7 @@ import os
 import requests
 from typing import Optional
 from datetime import date, timedelta
+from functools import lru_cache
 
 
 # ---------------------------------------------------------------------------
@@ -168,14 +169,15 @@ def get_order_status(order_id: str) -> dict:
 # Options chain
 # ---------------------------------------------------------------------------
 
+@lru_cache(maxsize=256)
 def get_options_chain(
     symbol: str,
     expiration: str,        # YYYY-MM-DD
     option_type: str = "put",  # put | call
-) -> list[dict]:
+) -> tuple:
     """
-    Fetch options chain for a symbol/expiration.
-    Returns list of option dicts with keys:
+    Fetch options chain for a symbol/expiration (cached).
+    Returns tuple of option dicts with keys:
       symbol, strike, bid, ask, last, volume, open_interest,
       implied_volatility, delta, gamma, theta
     """
@@ -189,7 +191,7 @@ def get_options_chain(
     if isinstance(options, dict):
         options = [options]  # single result comes back as dict
 
-    return [
+    return tuple(
         {
             "symbol":             o.get("symbol"),
             "option_type":        o.get("option_type"),
@@ -206,11 +208,12 @@ def get_options_chain(
         }
         for o in options
         if o.get("option_type") == option_type
-    ]
+    )
 
 
-def get_expirations(symbol: str) -> list[str]:
-    """Returns list of available expiration dates (YYYY-MM-DD) for a symbol."""
+@lru_cache(maxsize=256)
+def get_expirations(symbol: str) -> tuple:
+    """Returns tuple of available expiration dates (YYYY-MM-DD) for a symbol (cached)."""
     resp = _get("/v1/markets/options/expirations", {
         "symbol":           symbol,
         "includeAllRoots":  "true",
@@ -219,14 +222,15 @@ def get_expirations(symbol: str) -> list[str]:
     dates = resp.get("expirations", {}).get("date", [])
     if isinstance(dates, str):
         dates = [dates]
-    return dates
+    return tuple(dates)
 
 
 # ---------------------------------------------------------------------------
 # IV data (used by market_data.py)
 # ---------------------------------------------------------------------------
 
-def get_historical_iv(symbol: str, days: int = 365) -> list[dict]:
+@lru_cache(maxsize=256)
+def get_historical_iv(symbol: str, days: int = 365) -> tuple:
     """
     Fetch historical daily options data to derive IV history.
     Returns list of {date, iv} dicts sorted oldest-first.
@@ -264,7 +268,7 @@ def get_historical_iv(symbol: str, days: int = 365) -> list[dict]:
     # Compute 30-day rolling HV from close prices as IV proxy
     closes = [float(d["close"]) for d in history if d.get("close")]
     if len(closes) < 31:
-        return []
+        return ()
 
     import math
     result = []
@@ -279,11 +283,12 @@ def get_historical_iv(symbol: str, days: int = 365) -> list[dict]:
             "iv":   round(hv_30, 4),
         })
 
-    return result
+    return tuple(result)
 
 
+@lru_cache(maxsize=256)
 def get_quote(symbol: str) -> dict:
-    """Fetch current quote for a symbol."""
+    """Fetch current quote for a symbol (cached)."""
     resp = _get("/v1/markets/quotes", {"symbols": symbol, "greeks": "false"})
     quotes = resp.get("quotes", {}).get("quote", {})
     if isinstance(quotes, list):
@@ -295,6 +300,38 @@ def get_quote(symbol: str) -> dict:
         "ask":    quotes.get("ask"),
         "volume": quotes.get("volume"),
     }
+
+
+def get_quotes(symbols: list[str]) -> dict[str, dict]:
+    """
+    Fetch quotes for multiple symbols in one batch request.
+    Returns dict mapping symbol -> {symbol, last, bid, ask, volume}.
+    Much faster than calling get_quote() for each symbol individually.
+    """
+    if not symbols:
+        return {}
+
+    symbols_str = ",".join(symbols)
+    resp = _get("/v1/markets/quotes", {"symbols": symbols_str, "greeks": "false"})
+    quotes_data = resp.get("quotes", {}).get("quote", [])
+
+    # Handle single quote vs list of quotes
+    if isinstance(quotes_data, dict):
+        quotes_data = [quotes_data]
+
+    result = {}
+    for quote in quotes_data:
+        symbol = quote.get("symbol")
+        if symbol:
+            result[symbol] = {
+                "symbol": symbol,
+                "last": quote.get("last"),
+                "bid": quote.get("bid"),
+                "ask": quote.get("ask"),
+                "volume": quote.get("volume"),
+            }
+
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ Both are stored; which one the screener displays is a session preference
 
 from datetime import datetime, timezone
 from typing import Optional
+from functools import lru_cache
 from src.db import get_conn
 from src.tradier import get_historical_iv, get_options_chain, get_expirations, TradierError
 
@@ -60,13 +61,20 @@ def compute_iv_metrics(iv_series: list[dict], current_iv: float) -> dict:
     }
 
 
+@lru_cache(maxsize=256)
 def get_current_iv(symbol: str) -> Optional[float]:
     """
     Fetch current 30-day IV from the nearest-expiry ATM options chain.
     Returns None if unavailable (sandbox limitations, no options listed).
     """
+    import time
+    start = time.time()
+    profile = {}
+
     try:
+        t = time.time()
         expirations = get_expirations(symbol)
+        profile["expirations_ms"] = (time.time() - t) * 1000
         if not expirations:
             return None
 
@@ -80,18 +88,24 @@ def get_current_iv(symbol: str) -> Optional[float]:
         if not valid_exps:
             return None
 
+        t = time.time()
         chain = get_options_chain(symbol, valid_exps[0], option_type="put")
+        profile["options_chain_ms"] = (time.time() - t) * 1000
         if not chain:
             return None
 
         # Get ATM option: option with strike closest to current price
         from src.tradier import get_quote
+        t = time.time()
         quote = get_quote(symbol)
+        profile["quote_ms"] = (time.time() - t) * 1000
         last_price = quote.get("last")
         if not last_price:
             return None
 
         atm = min(chain, key=lambda o: abs((o["strike"] or 0) - last_price))
+        elapsed = (time.time() - start) * 1000
+        print(f"[get_current_iv {symbol}] {elapsed:.0f}ms: expirations={profile['expirations_ms']:.0f}ms, chain={profile['options_chain_ms']:.0f}ms, quote={profile['quote_ms']:.0f}ms")
         return atm.get("implied_volatility")
 
     except TradierError:

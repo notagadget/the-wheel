@@ -6,8 +6,10 @@ Used for data not available via Tradier/Massive:
 """
 
 import yfinance as yf
+from functools import lru_cache
 
 
+@lru_cache(maxsize=256)
 def get_institutional_ownership_pct(symbol: str) -> float | None:
     """
     Return % of shares held by institutions (0–100 scale).

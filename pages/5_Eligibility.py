@@ -453,12 +453,13 @@ with tab_scan:
                     scan["progress"] = (i, total, symbol)
 
                 try:
-                    results = scan_universe(
+                    results, timing_stats = scan_universe(
                         tickers=tickers,
                         progress_callback=progress_callback,
                         stop_event=stop_event,
                     )
                     scan["results"] = results
+                    scan["timing_stats"] = timing_stats
                 except Exception as e:
                     scan["error"] = f"{type(e).__name__}: {str(e)}\n\n{traceback.format_exc()}"
                 finally:
@@ -487,6 +488,38 @@ with tab_scan:
         col1.metric("✅ Full Pass", len(full_passes))
         col2.metric("⚠️ Partial", len(partials))
         col3.metric("❌ Error", len(errors))
+
+        if "timing_stats" in scan:
+            ts = scan["timing_stats"]
+            st.divider()
+            col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+            col_t1.metric("⏱ Total Time", f"{ts['total_ms']/1000:.1f}s")
+            col_t2.metric("⏱ Avg/Ticker", f"{ts['avg_per_ticker_ms']:.0f}ms")
+            col_t3.metric("⏱ Min", f"{ts['min_per_ticker_ms']:.0f}ms")
+            col_t4.metric("⏱ Max", f"{ts['max_per_ticker_ms']:.0f}ms")
+
+            if ts.get("batch_quote_ms"):
+                st.caption(f"Batch quotes: {ts['batch_quote_ms']:.0f}ms")
+
+            if "api_breakdown" in ts and ts["api_breakdown"]:
+                st.caption("Common data fetch timing (avg per ticker):")
+                breakdown = ts["api_breakdown"]
+                col_api1, col_api2, col_api3, col_api4 = st.columns(4)
+                col_api1.metric("get_quote", f"{breakdown.get('quote_ms', 0):.0f}ms")
+                col_api2.metric("ticker_details", f"{breakdown.get('ticker_details_ms', 0):.0f}ms")
+                col_api3.metric("daily_bars", f"{breakdown.get('daily_bars_ms', 0):.0f}ms")
+                col_api4.metric("avg_volume", f"{breakdown.get('avg_volume_ms', 0):.0f}ms")
+
+            if "strategy_breakdown" in ts and ts["strategy_breakdown"]:
+                st.caption("Strategy evaluation timing (avg per ticker):")
+                strat_breakdown = ts["strategy_breakdown"]
+                for strat_name in sorted(strat_breakdown.keys()):
+                    calls = strat_breakdown[strat_name]
+                    if calls:
+                        st.write(f"**{strat_name}**")
+                        cols = st.columns(len(calls))
+                        for i, (call_name, ms_val) in enumerate(sorted(calls.items())):
+                            cols[i].metric(call_name.replace("_ms", ""), f"{ms_val:.0f}ms")
 
         if full_passes:
             st.subheader("✅ Full Passes")

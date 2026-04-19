@@ -10,6 +10,7 @@ import os
 import requests
 from typing import Optional
 from datetime import date, timedelta
+from functools import lru_cache
 
 
 class MassiveError(Exception):
@@ -103,6 +104,7 @@ def get_prev_close(symbol: str) -> dict:
     }
 
 
+@lru_cache(maxsize=256)
 def get_ticker_details(symbol: str) -> dict:
     """
     Get company details for a symbol.
@@ -129,6 +131,7 @@ def get_ticker_details(symbol: str) -> dict:
     }
 
 
+@lru_cache(maxsize=256)
 def get_sma(symbol: str, window: int = 200) -> Optional[float]:
     """
     Get Simple Moving Average for a symbol.
@@ -163,16 +166,17 @@ def get_sma(symbol: str, window: int = 200) -> Optional[float]:
     return None
 
 
-def get_daily_bars(symbol: str, days: int = 30) -> list[dict]:
+@lru_cache(maxsize=256)
+def get_daily_bars(symbol: str, days: int = 30) -> tuple:
     """
     Get daily bars for a symbol over the last N days.
 
     GET /v2/aggs/ticker/{symbol}/range/1/day/{from_date}/{to_date}.
     to_date = today, from_date = today - days.
     Params: adjusted=true, sort=asc, limit=days+10.
-    Returns list of {date, open, high, low, close, volume} dicts.
+    Returns tuple of dicts {date, open, high, low, close, volume}.
     Timestamp t is Unix ms — convert to ISO date string.
-    Returns [] on MassiveNotFoundError.
+    Returns () on MassiveNotFoundError.
     """
     to_date = date.today().isoformat()
     from_date = (date.today() - timedelta(days=days)).isoformat()
@@ -188,10 +192,10 @@ def get_daily_bars(symbol: str, days: int = 30) -> list[dict]:
             },
         )
     except MassiveNotFoundError:
-        return []
+        return ()
 
     if not data.get("results"):
-        return []
+        return ()
 
     bars = []
     for result in data["results"]:
@@ -211,7 +215,7 @@ def get_daily_bars(symbol: str, days: int = 30) -> list[dict]:
             "volume": result.get("v"),
         })
 
-    return bars
+    return tuple(bars)
 
 
 def compute_rsi(bars: list[dict], period: int = 14) -> Optional[float]:

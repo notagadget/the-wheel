@@ -1,2 +1,10 @@
 [server]
 address = "0.0.0.0"
+
+[theme]
+base = "dark"
+backgroundColor = "#0f0f0f"
+secondaryBackgroundColor = "#1a1a1a"
+textColor = "#e8e8e8"
+primaryColor = "#4a9eff"
+font = "sans-serif"
