@@ -534,18 +534,92 @@ with tab_scan:
         if "timing_stats" in scan:
             _render_timing_stats(scan["timing_stats"])
 
-        if full_passes:
-            st.subheader("✅ Full Passes")
-            for i, result in enumerate(full_passes):
-                _render_scan_result(result, collapsed=True, index=i)
+        with st.expander("🔍 Filter & Sort", expanded=True):
+            _fc1, _fc2 = st.columns(2)
+            with _fc1:
+                sort_by = st.selectbox(
+                    "Sort by",
+                    options=[
+                        "Symbol (A→Z)", "Symbol (Z→A)",
+                        "Price ↑", "Price ↓",
+                        "Market Cap ↑", "Market Cap ↓",
+                        "Strategies passing ↓",
+                    ],
+                    key="scan_sort_by",
+                )
+            with _fc2:
+                show_groups = st.multiselect(
+                    "Show groups",
+                    options=["Full Passes", "Partial Matches", "Errors"],
+                    default=["Full Passes", "Partial Matches", "Errors"],
+                    key="scan_show_groups",
+                )
+            _fc3, _fc4, _fc5 = st.columns(3)
+            with _fc3:
+                required_strats = st.multiselect(
+                    "Must pass strategies",
+                    options=list(STRATEGIES.keys()),
+                    default=[],
+                    key="scan_required_strats",
+                )
+            with _fc4:
+                price_min = st.number_input(
+                    "Min price ($)", min_value=0.0, value=0.0, step=5.0, format="%.0f",
+                    key="scan_price_min",
+                )
+            with _fc5:
+                price_max = st.number_input(
+                    "Max price ($)", min_value=0.0, value=0.0, step=5.0, format="%.0f",
+                    help="0 = no limit", key="scan_price_max",
+                )
 
-        if partials:
-            st.subheader("⚠️ Partial Matches")
-            for i, result in enumerate(partials):
-                _render_scan_result(result, collapsed=True, index=i)
+        _sort_key_map = {
+            "Symbol (A→Z)": (lambda r: r.get("symbol", ""), False),
+            "Symbol (Z→A)": (lambda r: r.get("symbol", ""), True),
+            "Price ↑": (lambda r: r.get("price") or 0.0, False),
+            "Price ↓": (lambda r: r.get("price") or 0.0, True),
+            "Market Cap ↑": (lambda r: r.get("market_cap_b") or 0.0, False),
+            "Market Cap ↓": (lambda r: r.get("market_cap_b") or 0.0, True),
+            "Strategies passing ↓": (
+                lambda r: sum(1 for d in r.get("strategies", {}).values() if d.get("passes_all")),
+                True,
+            ),
+        }
+        _sk, _rev = _sort_key_map[sort_by]
 
-        if errors:
-            st.subheader("❌ Errors")
-            for result in errors:
+        def _filter_and_sort(result_list):
+            out = result_list
+            if required_strats:
+                out = [
+                    r for r in out
+                    if all(r.get("strategies", {}).get(s, {}).get("passes_all") for s in required_strats)
+                ]
+            if price_min > 0:
+                out = [r for r in out if (r.get("price") or 0) >= price_min]
+            if price_max > 0:
+                out = [r for r in out if (r.get("price") or 0) <= price_max]
+            return sorted(out, key=_sk, reverse=_rev)
+
+        full_passes_shown = _filter_and_sort(full_passes) if "Full Passes" in show_groups else []
+        partials_shown = _filter_and_sort(partials) if "Partial Matches" in show_groups else []
+        errors_shown = errors if "Errors" in show_groups else []
+
+        if full_passes_shown:
+            st.subheader(f"✅ Full Passes ({len(full_passes_shown)})")
+            for i, result in enumerate(full_passes_shown):
+                _render_scan_result(result, collapsed=True, index=i)
+        elif "Full Passes" in show_groups and full_passes:
+            st.info("No full passes match the current filters.")
+
+        if partials_shown:
+            st.subheader(f"⚠️ Partial Matches ({len(partials_shown)})")
+            for i, result in enumerate(partials_shown):
+                _render_scan_result(result, collapsed=True, index=i)
+        elif "Partial Matches" in show_groups and partials:
+            st.info("No partial matches match the current filters.")
+
+        if errors_shown:
+            st.subheader(f"❌ Errors ({len(errors_shown)})")
+            for result in errors_shown:
                 with st.expander(f"{result['symbol']} — {result.get('error')}"):
                     st.error(result.get("error"))
