@@ -13,10 +13,6 @@ CREATE TABLE IF NOT EXISTS underlying (
     iv_updated         DATETIME,
     earnings_date      DATE,       -- next earnings announcement (optional)
     wheel_eligible     INTEGER NOT NULL DEFAULT 0,  -- hard gate: 1 = eligible to wheel
-    eligible_strategy  TEXT CHECK(eligible_strategy IN (
-                           'FUNDAMENTAL', 'TECHNICAL', 'ETF_COMPONENT', 'VOL_PREMIUM'
-                       )),
-    quality_notes      TEXT,       -- reason for eligibility decision
     last_reviewed      DATE,       -- date eligibility was last set
     created_at         DATETIME DEFAULT CURRENT_TIMESTAMP
 );

@@ -49,10 +49,22 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
                         continue
                 except (ValueError, IndexError):
                     pass
+            # Guard ALTER TABLE ... DROP COLUMN against already-removed columns
+            if "ALTER TABLE" in upper and "DROP COLUMN" in upper:
+                parts = stmt_clean.split()
+                uppers = [p.upper() for p in parts]
+                try:
+                    tbl = parts[uppers.index("TABLE") + 1]
+                    col = parts[uppers.index("COLUMN") + 1].rstrip(";")
+                    if not _column_exists(conn, tbl, col):
+                        continue
+                except (ValueError, IndexError):
+                    pass
             try:
                 conn.execute(stmt_clean)
             except sqlite3.OperationalError as e:
-                if any(x in str(e).lower() for x in ["already exists", "duplicate column"]):
+                msg = str(e).lower()
+                if any(x in msg for x in ["already exists", "duplicate column", "no such column"]):
                     continue
                 raise
 

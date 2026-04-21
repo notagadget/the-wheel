@@ -21,10 +21,6 @@ CREATE TABLE underlying (
     iv_updated         DATETIME,
     earnings_date      DATE,                   -- next earnings announcement (optional)
     wheel_eligible     INTEGER NOT NULL DEFAULT 0,  -- 1 = cleared for wheel trading
-    eligible_strategy  TEXT CHECK(eligible_strategy IN (
-                           'FUNDAMENTAL', 'TECHNICAL', 'ETF_COMPONENT', 'VOL_PREMIUM'
-                       )),
-    quality_notes      TEXT,                   -- reason for most recent eligibility decision
     last_reviewed      DATE,                   -- date eligibility was last set via eligibility.py
     created_at         DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -36,11 +32,9 @@ CREATE TABLE underlying (
 
 **`wheel_eligible`** is a hard quality gate set manually via `src/eligibility.py`. A ticker must have `wheel_eligible = 1` to appear in screening results. This is a separate signal from IV rank: eligibility answers "should I ever wheel this?", IV rank answers "should I wheel this right now?".
 
-**`eligible_strategy`** records which of the four strategy frameworks justified the eligibility decision: `FUNDAMENTAL`, `TECHNICAL`, `ETF_COMPONENT`, or `VOL_PREMIUM`. NULL when `wheel_eligible = 0`. See `src/eligibility.py` for strategy definitions.
+Which strategy frameworks justify eligibility is recorded in `underlying_strategy` (one row per strategy). Per-strategy rationale lives in `underlying_strategy.quality_notes`. Generic ticker notes — including the rationale for marking a ticker ineligible — live in `underlying.notes`.
 
-**`quality_notes`** and **`last_reviewed`** are set automatically by `update_eligibility()` in `src/eligibility.py` — do not update them directly.
-
-**`eligible_strategy`** is kept for backward compatibility; the canonical source of strategies is now `underlying_strategy`. Will be removed once all reads are migrated.
+**`last_reviewed`** is set automatically by `update_eligibility()` in `src/eligibility.py` — do not update it directly.
 
 ---
 
@@ -202,3 +196,4 @@ Schema changes are managed in `db/migrations/`. Each migration file is numbered 
 - `001_add_earnings_date.sql` — Adds `earnings_date` column to `underlying` for earnings tracking.
 - `003_add_wheel_eligibility.sql` — Adds `wheel_eligible`, `eligible_strategy`, `quality_notes`, `last_reviewed` to `underlying`.
 - `004_underlying_strategies.sql` — Creates `underlying_strategy` join table for multi-strategy eligibility; migrates existing single-strategy rows.
+- `005_drop_underlying_backcompat.sql` — Drops `underlying.eligible_strategy` and `underlying.quality_notes`. Merges any remaining ineligible-ticker notes into `underlying.notes`. Canonical strategy store is `underlying_strategy`.

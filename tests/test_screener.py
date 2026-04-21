@@ -27,8 +27,8 @@ def _seed(
         conn.execute(
             "INSERT OR IGNORE INTO underlying "
             "(underlying_id, ticker, iv_rank_cached, earnings_date, "
-            " wheel_eligible, eligible_strategy) VALUES (?,?,?,?,?,?)",
-            (ticker, ticker, iv_rank, earnings_date, wheel_eligible, strategy),
+            " wheel_eligible) VALUES (?,?,?,?,?)",
+            (ticker, ticker, iv_rank, earnings_date, wheel_eligible),
         )
         if wheel_eligible and strategy:
             conn.execute(

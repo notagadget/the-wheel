@@ -20,8 +20,8 @@ def _seed(ticker: str, wheel_eligible: int = 0, strategies: list[str] | None = N
     with get_conn() as conn:
         conn.execute(
             "INSERT OR IGNORE INTO underlying "
-            "(underlying_id, ticker, wheel_eligible, eligible_strategy) VALUES (?,?,?,?)",
-            (ticker, ticker, wheel_eligible, strategies[0] if strategies else None),
+            "(underlying_id, ticker, wheel_eligible) VALUES (?,?,?)",
+            (ticker, ticker, wheel_eligible),
         )
         for s in strategies:
             conn.execute(
@@ -42,18 +42,18 @@ def test_update_eligibility_sets_all_fields():
     from src.db import get_conn
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT wheel_eligible, eligible_strategy, quality_notes, last_reviewed "
+            "SELECT wheel_eligible, last_reviewed "
             "FROM underlying WHERE ticker = 'AAPL'"
         ).fetchone()
         strats = conn.execute(
-            "SELECT strategy FROM underlying_strategy WHERE underlying_id = 'AAPL'"
+            "SELECT strategy, quality_notes FROM underlying_strategy "
+            "WHERE underlying_id = 'AAPL'"
         ).fetchall()
 
     assert row["wheel_eligible"] == 1
-    assert row["eligible_strategy"] == "FUNDAMENTAL"
-    assert row["quality_notes"] == "Strong FCF"
     assert row["last_reviewed"] == date.today().isoformat()
     assert {r["strategy"] for r in strats} == {"FUNDAMENTAL"}
+    assert strats[0]["quality_notes"] == "Strong FCF"
 
 
 def test_update_eligibility_multi_strategy():
@@ -63,14 +63,12 @@ def test_update_eligibility_multi_strategy():
     from src.db import get_conn
     with get_conn() as conn:
         strats = conn.execute(
-            "SELECT strategy FROM underlying_strategy WHERE underlying_id = 'AAPL'"
+            "SELECT strategy, quality_notes FROM underlying_strategy "
+            "WHERE underlying_id = 'AAPL'"
         ).fetchall()
-        row = conn.execute(
-            "SELECT eligible_strategy FROM underlying WHERE ticker = 'AAPL'"
-        ).fetchone()
 
     assert {r["strategy"] for r in strats} == {"FUNDAMENTAL", "TECHNICAL"}
-    assert row["eligible_strategy"] == "FUNDAMENTAL"  # first strategy kept for backward compat
+    assert all(r["quality_notes"] == "Dual signal" for r in strats)
 
 
 def test_update_eligibility_replaces_strategies():
@@ -102,16 +100,14 @@ def test_update_eligibility_clears_strategy_when_ineligible():
     from src.db import get_conn
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT wheel_eligible, eligible_strategy, quality_notes "
-            "FROM underlying WHERE ticker = 'TSLA'"
+            "SELECT wheel_eligible, notes FROM underlying WHERE ticker = 'TSLA'"
         ).fetchone()
         strats = conn.execute(
             "SELECT COUNT(*) AS cnt FROM underlying_strategy WHERE underlying_id = 'TSLA'"
         ).fetchone()
 
     assert row["wheel_eligible"] == 0
-    assert row["eligible_strategy"] is None
-    assert row["quality_notes"] == "Too volatile"
+    assert row["notes"] == "Too volatile"
     assert strats["cnt"] == 0
 
 
@@ -132,11 +128,10 @@ def test_remove_strategy_clears_wheel_eligible_when_last():
     from src.db import get_conn
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT wheel_eligible, eligible_strategy FROM underlying WHERE ticker = 'AAPL'"
+            "SELECT wheel_eligible FROM underlying WHERE ticker = 'AAPL'"
         ).fetchone()
 
     assert row["wheel_eligible"] == 0
-    assert row["eligible_strategy"] is None
 
 
 def test_remove_strategy_keeps_eligible_when_others_remain():
@@ -146,7 +141,7 @@ def test_remove_strategy_keeps_eligible_when_others_remain():
     from src.db import get_conn
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT wheel_eligible, eligible_strategy FROM underlying WHERE ticker = 'AAPL'"
+            "SELECT wheel_eligible FROM underlying WHERE ticker = 'AAPL'"
         ).fetchone()
         strats = conn.execute(
             "SELECT strategy FROM underlying_strategy WHERE underlying_id = 'AAPL'"

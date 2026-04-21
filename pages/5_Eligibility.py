@@ -357,7 +357,7 @@ with tab_review:
                     )
                     notes_input = st.text_input(
                         "Notes",
-                        value=row["quality_notes"] or "",
+                        value=row["notes"] or "",
                         placeholder="Reason for decision",
                     )
                     submitted = st.form_submit_button("Save")

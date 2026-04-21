@@ -1,13 +1,13 @@
 """
 eligibility.py — Wheel-eligibility gate for underlying tickers.
 
-Single authority for setting wheel_eligible, eligible_strategy, quality_notes,
+Single authority for setting wheel_eligible, strategy tags, per-strategy notes,
 and last_reviewed on underlying rows. Analogous to how state_machine.py owns
 cycle state — no other module may UPDATE wheel_eligible directly.
 
 Multi-strategy: a ticker may qualify under multiple STRATEGIES simultaneously.
-The canonical store is underlying_strategy; underlying.eligible_strategy is kept
-as a backward-compat column (set to strategies[0]) until all reads are migrated.
+The canonical store is underlying_strategy. Per-strategy rationale lives in
+underlying_strategy.quality_notes; generic ticker notes live in underlying.notes.
 """
 
 import sqlite3
@@ -57,15 +57,16 @@ STRATEGIES: dict[str, dict] = {
 def get_eligible_underlyings(strategy: str | None = None) -> list[dict]:
     """
     Return all underlyings where wheel_eligible = 1, sorted by ticker.
-    Each row includes strategies: list[str] and conviction: int.
+    Each row includes strategies: list[str], conviction: int, and
+    quality_notes (combined across strategies, pipe-separated).
     Optionally filter to tickers that have at least one row for strategy.
     """
     with get_conn() as conn:
         if strategy is not None:
             rows = conn.execute("""
-                SELECT u.underlying_id, u.ticker, u.quality_notes,
-                       u.last_reviewed, u.iv_rank_cached,
-                       GROUP_CONCAT(us.strategy, ',') AS strategies_csv
+                SELECT u.underlying_id, u.ticker, u.last_reviewed, u.iv_rank_cached,
+                       GROUP_CONCAT(us.strategy, ',') AS strategies_csv,
+                       GROUP_CONCAT(COALESCE(us.quality_notes, ''), '|') AS notes_csv
                 FROM underlying u
                 JOIN underlying_strategy us ON us.underlying_id = u.underlying_id
                 WHERE u.wheel_eligible = 1
@@ -77,9 +78,9 @@ def get_eligible_underlyings(strategy: str | None = None) -> list[dict]:
             """, (strategy,)).fetchall()
         else:
             rows = conn.execute("""
-                SELECT u.underlying_id, u.ticker, u.quality_notes,
-                       u.last_reviewed, u.iv_rank_cached,
-                       GROUP_CONCAT(us.strategy, ',') AS strategies_csv
+                SELECT u.underlying_id, u.ticker, u.last_reviewed, u.iv_rank_cached,
+                       GROUP_CONCAT(us.strategy, ',') AS strategies_csv,
+                       GROUP_CONCAT(COALESCE(us.quality_notes, ''), '|') AS notes_csv
                 FROM underlying u
                 JOIN underlying_strategy us ON us.underlying_id = u.underlying_id
                 WHERE u.wheel_eligible = 1
@@ -93,6 +94,13 @@ def get_eligible_underlyings(strategy: str | None = None) -> list[dict]:
         csv = d.pop("strategies_csv") or ""
         d["strategies"] = csv.split(",") if csv else []
         d["conviction"] = len(d["strategies"])
+        notes_raw = d.pop("notes_csv") or ""
+        distinct_notes = []
+        for n in notes_raw.split("|"):
+            n = n.strip()
+            if n and n not in distinct_notes:
+                distinct_notes.append(n)
+        d["quality_notes"] = " | ".join(distinct_notes) if distinct_notes else None
         result.append(d)
     return result
 
@@ -101,7 +109,7 @@ def get_ineligible_underlyings() -> list[dict]:
     """Return all underlyings where wheel_eligible = 0, sorted by ticker."""
     with get_conn() as conn:
         rows = conn.execute("""
-            SELECT underlying_id, ticker, eligible_strategy, quality_notes,
+            SELECT underlying_id, ticker, notes,
                    last_reviewed, iv_rank_cached
             FROM underlying
             WHERE wheel_eligible = 0
@@ -122,9 +130,10 @@ def update_eligibility(
 
     When eligible=True: strategies must be a non-empty list of valid STRATEGIES keys.
     Fully replaces any existing strategy tags (delete-then-insert).
-    Also sets underlying.eligible_strategy = strategies[0] for backward compat.
+    quality_notes is stored per-strategy on underlying_strategy.
 
-    When eligible=False: clears all underlying_strategy rows and sets wheel_eligible=0.
+    When eligible=False: clears all underlying_strategy rows, sets wheel_eligible=0,
+    and stores quality_notes on underlying.notes for retention.
     """
     if eligible:
         if not strategies:
@@ -148,12 +157,10 @@ def update_eligibility(
         if eligible:
             conn.execute("""
                 UPDATE underlying
-                SET wheel_eligible    = 1,
-                    eligible_strategy = ?,
-                    quality_notes     = ?,
-                    last_reviewed     = ?
+                SET wheel_eligible = 1,
+                    last_reviewed  = ?
                 WHERE underlying_id = ?
-            """, (strategies[0], quality_notes, today, underlying_id))
+            """, (today, underlying_id))
 
             conn.execute(
                 "DELETE FROM underlying_strategy WHERE underlying_id = ?",
@@ -168,10 +175,9 @@ def update_eligibility(
         else:
             conn.execute("""
                 UPDATE underlying
-                SET wheel_eligible    = 0,
-                    eligible_strategy = NULL,
-                    quality_notes     = ?,
-                    last_reviewed     = ?
+                SET wheel_eligible = 0,
+                    notes          = ?,
+                    last_reviewed  = ?
                 WHERE underlying_id = ?
             """, (quality_notes, date.today().isoformat(), underlying_id))
 
@@ -200,20 +206,14 @@ def remove_strategy(ticker: str, strategy: str) -> None:
         )
 
         remaining = conn.execute(
-            "SELECT strategy FROM underlying_strategy WHERE underlying_id = ? ORDER BY strategy LIMIT 1",
+            "SELECT COUNT(*) AS cnt FROM underlying_strategy WHERE underlying_id = ?",
             (underlying_id,),
         ).fetchone()
 
-        if remaining is None:
+        if remaining["cnt"] == 0:
             conn.execute(
-                "UPDATE underlying SET wheel_eligible = 0, eligible_strategy = NULL WHERE underlying_id = ?",
+                "UPDATE underlying SET wheel_eligible = 0 WHERE underlying_id = ?",
                 (underlying_id,),
-            )
-        else:
-            # Keep eligible_strategy in sync with first remaining (backward compat)
-            conn.execute(
-                "UPDATE underlying SET eligible_strategy = ? WHERE underlying_id = ?",
-                (remaining["strategy"], underlying_id),
             )
 
 
