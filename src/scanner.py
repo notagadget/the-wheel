@@ -94,7 +94,7 @@ def _fetch_common_data(symbol: str, quotes_cache: dict | None = None) -> dict:
         return {"error": str(e), "_fetch_profile": fetch_profile}
 
     t = time.time()
-    daily_bars = _get_daily_bars_tradier(symbol, days=200)
+    daily_bars = _get_daily_bars_tradier(symbol, days=300)
     fetch_profile["daily_bars_ms"] = (time.time() - t) * 1000
 
     t = time.time()
@@ -173,17 +173,26 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
         }
 
     elif strategy == "FUNDAMENTAL":
+        t = time.time()
+        from src.yfinance_data import get_fundamentals as _get_fundamentals
+        fundamentals = _get_fundamentals(symbol)
+        strat_profile["fundamentals_ms"] = (time.time() - t) * 1000
+
+        fcf = fundamentals.get("free_cash_flow")
         criteria["requires_positive_cashflow"] = {
-            "passed": None,
-            "value": None,
+            "passed": fcf > 0 if fcf is not None else None,
+            "value": fcf,
             "threshold": "Positive FCF",
-            "note": "Requires Massive paid plan — verify manually via financials.",
+            "note": f"FCF: ${_format_si(fcf)}" if fcf is not None else "FCF unavailable",
         }
+
+        de_ratio = fundamentals.get("debt_to_equity")
+        max_de = strat_config.get("max_debt_equity", 1.5)
         criteria["max_debt_equity"] = {
-            "passed": None,
-            "value": None,
-            "threshold": strat_config.get("max_debt_equity", 1.5),
-            "note": "Requires Massive paid plan — verify manually via financials.",
+            "passed": de_ratio <= max_de if de_ratio is not None else None,
+            "value": de_ratio,
+            "threshold": max_de,
+            "note": f"D/E: {de_ratio:.2f}" if de_ratio is not None else "D/E unavailable",
         }
 
     elif strategy == "ETF_COMPONENT":

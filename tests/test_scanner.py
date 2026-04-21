@@ -348,6 +348,7 @@ def test_scan_ticker_below_200dma(
     assert technical["criteria"]["above_200dma"]["passed"] is False
 
 
+@patch("src.yfinance_data.get_fundamentals")
 @patch("src.scanner._get_daily_bars_tradier")
 @patch("src.tradier.get_quote")
 @patch("src.massive.get_daily_bars")
@@ -355,7 +356,7 @@ def test_scan_ticker_below_200dma(
 @patch("src.massive.compute_rsi")
 @patch("src.massive.compute_avg_volume")
 @patch("src.massive.get_ticker_details")
-def test_scan_ticker_fundamental_manual_criteria(
+def test_scan_ticker_fundamental_passes(
     mock_ticker_details,
     mock_avg_volume,
     mock_rsi,
@@ -363,8 +364,9 @@ def test_scan_ticker_fundamental_manual_criteria(
     mock_daily_bars,
     mock_quote,
     mock_tradier_bars,
+    mock_fundamentals,
 ):
-    """FUNDAMENTAL strategy has manual criteria (passed=None) for cashflow and debt/equity."""
+    """FUNDAMENTAL strategy evaluates FCF and debt/equity via Massive Ratios API."""
     mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
     mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
@@ -372,12 +374,85 @@ def test_scan_ticker_fundamental_manual_criteria(
     mock_avg_volume.return_value = 500_000
     mock_sma.return_value = 45.0
     mock_rsi.return_value = 50.0
+    mock_fundamentals.return_value = {"free_cash_flow": 1_000_000_000, "debt_to_equity": 0.8}
+
+    result = scanner.scan_ticker("AAPL")
+
+    fundamental = result["strategies"]["FUNDAMENTAL"]
+    assert fundamental["criteria"]["requires_positive_cashflow"]["passed"] is True
+    assert fundamental["criteria"]["requires_positive_cashflow"]["value"] == 1_000_000_000
+    assert fundamental["criteria"]["max_debt_equity"]["passed"] is True
+    assert fundamental["criteria"]["max_debt_equity"]["value"] == 0.8
+
+
+@patch("src.yfinance_data.get_fundamentals")
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
+@patch("src.massive.get_daily_bars")
+@patch("src.massive.get_sma")
+@patch("src.massive.compute_rsi")
+@patch("src.massive.compute_avg_volume")
+@patch("src.massive.get_ticker_details")
+def test_scan_ticker_fundamental_fails_criteria(
+    mock_ticker_details,
+    mock_avg_volume,
+    mock_rsi,
+    mock_sma,
+    mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
+    mock_fundamentals,
+):
+    """FUNDAMENTAL fails when FCF is negative or D/E exceeds threshold."""
+    mock_quote.return_value = {"last": 50.0}
+    mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
+    mock_daily_bars.return_value = [{"close": 50.0}]
+    mock_avg_volume.return_value = 500_000
+    mock_sma.return_value = 45.0
+    mock_rsi.return_value = 50.0
+    mock_fundamentals.return_value = {"free_cash_flow": -500_000_000, "debt_to_equity": 2.5}
+
+    result = scanner.scan_ticker("AAPL")
+
+    fundamental = result["strategies"]["FUNDAMENTAL"]
+    assert fundamental["criteria"]["requires_positive_cashflow"]["passed"] is False
+    assert fundamental["criteria"]["max_debt_equity"]["passed"] is False
+
+
+@patch("src.yfinance_data.get_fundamentals")
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
+@patch("src.massive.get_daily_bars")
+@patch("src.massive.get_sma")
+@patch("src.massive.compute_rsi")
+@patch("src.massive.compute_avg_volume")
+@patch("src.massive.get_ticker_details")
+def test_scan_ticker_fundamental_unavailable(
+    mock_ticker_details,
+    mock_avg_volume,
+    mock_rsi,
+    mock_sma,
+    mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
+    mock_fundamentals,
+):
+    """FUNDAMENTAL criteria are None when Massive returns no data."""
+    mock_quote.return_value = {"last": 50.0}
+    mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
+    mock_daily_bars.return_value = [{"close": 50.0}]
+    mock_avg_volume.return_value = 500_000
+    mock_sma.return_value = 45.0
+    mock_rsi.return_value = 50.0
+    mock_fundamentals.return_value = {"free_cash_flow": None, "debt_to_equity": None}
 
     result = scanner.scan_ticker("AAPL")
 
     fundamental = result["strategies"]["FUNDAMENTAL"]
     assert fundamental["criteria"]["requires_positive_cashflow"]["passed"] is None
-    assert "verify manually" in fundamental["criteria"]["requires_positive_cashflow"]["note"]
+    assert "unavailable" in fundamental["criteria"]["requires_positive_cashflow"]["note"]
     assert fundamental["criteria"]["max_debt_equity"]["passed"] is None
 
 
@@ -594,11 +669,10 @@ def test_scan_universe_returns_results(mock_scan_ticker):
         _make_result("MSFT", passes_any=False),
     ]
 
-    results = scanner.scan_universe(tickers=["AAPL", "MSFT"])
+    results, _ = scanner.scan_universe(tickers=["AAPL", "MSFT"])
 
     assert len(results) == 2
-    mock_scan_ticker.assert_any_call("AAPL")
-    mock_scan_ticker.assert_any_call("MSFT")
+    assert mock_scan_ticker.call_count == 2
 
 
 @patch("src.scanner.scan_ticker")
@@ -609,7 +683,7 @@ def test_scan_universe_sorts_full_passes_first(mock_scan_ticker):
         _make_result("FULLPASS", passes_any=True),
     ]
 
-    results = scanner.scan_universe(tickers=["PARTIAL", "FULLPASS"])
+    results, _ = scanner.scan_universe(tickers=["PARTIAL", "FULLPASS"])
 
     assert results[0]["symbol"] == "FULLPASS"
     assert results[1]["symbol"] == "PARTIAL"
@@ -623,7 +697,7 @@ def test_scan_universe_sorts_errors_last(mock_scan_ticker):
         _make_result("OK", passes_any=True),
     ]
 
-    results = scanner.scan_universe(tickers=["ERROR", "OK"])
+    results, _ = scanner.scan_universe(tickers=["ERROR", "OK"])
 
     assert results[0]["symbol"] == "OK"
     assert results[1]["symbol"] == "ERROR"

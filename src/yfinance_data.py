@@ -31,3 +31,20 @@ def get_institutional_ownership_pct(symbol: str) -> float | None:
         return round(val, 2)
     except Exception:
         return None
+
+
+@st.cache_data(ttl=86400)
+def get_fundamentals(symbol: str) -> dict:
+    """
+    Return FCF and D/E ratio from yfinance.
+    D/E is normalized to a ratio (yfinance returns it ×100).
+    Both may be None on failure.
+    """
+    try:
+        info = yf.Ticker(symbol).info
+        fcf = info.get("freeCashflow")
+        de_raw = info.get("debtToEquity")
+        de = de_raw / 100 if de_raw is not None else None
+        return {"free_cash_flow": fcf, "debt_to_equity": de}
+    except Exception:
+        return {"free_cash_flow": None, "debt_to_equity": None}

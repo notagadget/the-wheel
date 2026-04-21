@@ -271,6 +271,34 @@ def compute_avg_volume(bars: list[dict]) -> Optional[float]:
     return sum(volumes) / len(volumes)
 
 
+@st.cache_data(ttl=86400)
+def get_fundamentals(symbol: str) -> dict:
+    """
+    Get FCF and debt/equity ratio for a symbol from the Ratios endpoint.
+
+    GET /stocks/financials/v1/ratios?ticker=<symbol>&limit=1.
+    Returns {free_cash_flow, debt_to_equity}. Both may be None if unavailable.
+    """
+    try:
+        data = _request(
+            "GET",
+            "/stocks/financials/v1/ratios",
+            {"ticker": symbol, "limit": 1},
+        )
+    except MassiveError:
+        return {"free_cash_flow": None, "debt_to_equity": None}
+
+    results = data.get("results", [])
+    if not results:
+        return {"free_cash_flow": None, "debt_to_equity": None}
+
+    result = results[0]
+    return {
+        "free_cash_flow": result.get("free_cash_flow"),
+        "debt_to_equity": result.get("debt_to_equity"),
+    }
+
+
 def get_sp500_tickers() -> list[str]:
     """
     Return static list of ~100 large-cap US tickers spanning major sectors.

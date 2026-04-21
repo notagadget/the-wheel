@@ -35,7 +35,21 @@
       "Bash(git reset *)",
       "Bash(python -m streamlit run pages/5_Eligibility.py --logger.level=warning)",
       "Bash(python3)",
-      "Bash(git commit -m 'Tier 1.1: Replace @lru_cache with @st.cache_data for Streamlit persistence *)"
+      "Bash(git commit -m 'Tier 1.1: Replace @lru_cache with @st.cache_data for Streamlit persistence *)",
+      "Bash(streamlit run *)",
+      "Bash(git commit -m 'Compactify scan results UI: collapse all results, reduce sizes, group performance stats *)",
+      "mcp__Massive_Market_Data__search_endpoints",
+      "mcp__Massive_Market_Data__get_endpoint_docs",
+      "Bash(git stash *)",
+      "Bash(python -m pytest tests/test_scanner.py::test_scan_universe_returns_results -q)",
+      "Bash(python -m pytest tests/test_scanner.py -q --ignore-glob=\"*worktree*\" -k \"not test_scan_universe_returns_results\")",
+      "Bash(git checkout *)",
+      "Bash(python -m pytest tests/test_scanner.py -q -k \"not test_scan_universe_returns_results\")",
+      "Bash(python -m pytest tests/test_scanner.py -q -k \"sorts_full_passes_first or sorts_errors_last\")",
+      "Bash(git commit -m 'Fix institutional ownership percentage conversion *)",
+      "mcp__Massive_Market_Data__call_api",
+      "Bash(python -m pytest tests/test_scanner.py::test_scan_ticker_fundamental_passes tests/test_scanner.py::test_scan_ticker_fundamental_fails_criteria tests/test_scanner.py::test_scan_ticker_fundamental_unavailable -v)",
+      "Bash(git commit -m 'Fix FCF/D/E unavailable and SMA-200 errors in scanner *)"
     ]
   }
 }
