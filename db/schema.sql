@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS roll_event (
 
 CREATE INDEX IF NOT EXISTS idx_trade_cycle    ON trade(cycle_id);
 CREATE INDEX IF NOT EXISTS idx_trade_filled   ON trade(filled_at);
+CREATE INDEX IF NOT EXISTS idx_trade_fill_status ON trade(fill_status);
 CREATE INDEX IF NOT EXISTS idx_cycle_ticker   ON cycle(underlying_id, state);
 
 CREATE VIEW IF NOT EXISTS cycle_summary AS

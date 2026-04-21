@@ -58,7 +58,7 @@ def _get_config() -> tuple[str, str, str]:
         try:
             import streamlit as st
             return st.secrets.get(key)
-        except Exception:
+        except (ImportError, AttributeError, FileNotFoundError):
             return None
 
     env        = (_get("TRADIER_ENV") or "sandbox").lower()

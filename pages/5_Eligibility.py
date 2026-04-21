@@ -6,6 +6,7 @@ import traceback
 import streamlit as st
 from src.eligibility import (
     STRATEGIES,
+    add_underlying,
     get_eligible_underlyings,
     get_ineligible_underlyings,
     remove_underlying,
@@ -270,11 +271,7 @@ def _render_timing_stats(ts: dict):
 
 def _add_from_scan(symbol: str, strategies: list[str]):
     """Add ticker to underlying and mark eligible with one or more strategies."""
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO underlying (underlying_id, ticker) VALUES (?, ?)",
-            (symbol, symbol),
-        )
+    add_underlying(symbol)
     update_eligibility(
         ticker=symbol,
         eligible=True,

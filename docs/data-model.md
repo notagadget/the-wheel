@@ -191,6 +191,7 @@ GROUP BY c.cycle_id;
 ```sql
 CREATE INDEX idx_trade_cycle    ON trade(cycle_id);
 CREATE INDEX idx_trade_filled   ON trade(filled_at);
+CREATE INDEX idx_trade_fill_status ON trade(fill_status);
 CREATE INDEX idx_cycle_ticker   ON cycle(underlying_id, state);
 ```
 

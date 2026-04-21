@@ -11,11 +11,14 @@ Both are stored; which one the screener displays is a session preference
 (see pages/2_Screener.py).
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 import streamlit as st
 from src.db import get_conn
 from src.tradier import get_historical_iv, get_options_chain, get_expirations, TradierError
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +108,7 @@ def get_current_iv(symbol: str) -> Optional[float]:
 
         atm = min(chain, key=lambda o: abs((o["strike"] or 0) - last_price))
         elapsed = (time.time() - start) * 1000
-        print(f"[get_current_iv {symbol}] {elapsed:.0f}ms: expirations={profile['expirations_ms']:.0f}ms, chain={profile['options_chain_ms']:.0f}ms, quote={profile['quote_ms']:.0f}ms")
+        logger.debug(f"[get_current_iv {symbol}] {elapsed:.0f}ms: expirations={profile['expirations_ms']:.0f}ms, chain={profile['options_chain_ms']:.0f}ms, quote={profile['quote_ms']:.0f}ms")
         return atm.get("implied_volatility")
 
     except TradierError:

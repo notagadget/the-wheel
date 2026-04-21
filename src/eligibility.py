@@ -244,6 +244,17 @@ def remove_underlying(ticker: str) -> None:
             )
 
 
+def add_underlying(ticker: str, notes: str | None = None) -> None:
+    """Insert an underlying row if not already present. Idempotent."""
+    ticker = ticker.upper().strip()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO underlying (underlying_id, ticker, notes) "
+            "VALUES (?, ?, ?)",
+            (ticker, ticker, notes),
+        )
+
+
 def get_strategy_description(strategy: str) -> str:
     """Return the description string for a strategy. Raises KeyError if unknown."""
     return STRATEGIES[strategy]["description"]

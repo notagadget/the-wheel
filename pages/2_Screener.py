@@ -13,6 +13,7 @@ from src.db import get_conn
 from src.state_machine import open_short_put
 from src.ui_helpers import fmt_dollar, fmt_pct
 from src.market_data import refresh_all_watchlist, refresh_iv_for_ticker
+from src.eligibility import add_underlying
 
 st.set_page_config(page_title="Screener", layout="wide")
 st.title("Screener")
@@ -75,12 +76,7 @@ with st.expander("Add ticker to watchlist"):
         notes = st.text_area("Notes (why Wheel-eligible?)", height=80)
         submitted = st.form_submit_button("Add")
         if submitted and new_ticker:
-            with get_conn() as conn:
-                conn.execute(
-                    "INSERT OR IGNORE INTO underlying (underlying_id, ticker, notes) "
-                    "VALUES (?,?,?)",
-                    (new_ticker, new_ticker, notes or None)
-                )
+            add_underlying(new_ticker, notes or None)
             st.success(f"{new_ticker} added to watchlist.")
             st.rerun()
 
