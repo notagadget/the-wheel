@@ -24,6 +24,10 @@ def get_institutional_ownership_pct(symbol: str) -> float | None:
         # Row 2 is "% of Shares Held by Institutions"
         # DataFrame has columns [0, 1]; row index 2
         pct_str = holders.iloc[2, 0]
-        return round(float(str(pct_str).replace("%", "").strip()), 2)
+        val = float(str(pct_str).replace("%", "").strip())
+        # yfinance may return a decimal fraction (0.65) or a percentage (65.0)
+        if val <= 1.0:
+            val *= 100
+        return round(val, 2)
     except Exception:
         return None
