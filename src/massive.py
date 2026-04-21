@@ -324,9 +324,9 @@ def get_sp500_tickers() -> list[str]:
         # Utilities & REITs
         "DUK", "NEE", "SO", "AEP", "EXC", "PEG", "SRE", "EQIX", "WELL", "PSA",
         # Communication
-        "T", "VZ", "CMCSA", "DISH", "EA", "TTWO", "RBLX",
+        "T", "VZ", "CMCSA", "EA", "TTWO", "RBLX",
         # Materials
-        "NEM", "FCX", "MM", "APD", "ECL", "VMC", "SLB",
+        "NEM", "FCX", "APD", "ECL", "VMC", "SLB",
         # Mid-caps with strong options liquidity
         "PLTR", "RIOT", "F", "C", "GM", "SOFI", "AMD", "MU", "QCOM", "VLO",
         # Additional core holdings
