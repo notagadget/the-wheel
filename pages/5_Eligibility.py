@@ -510,9 +510,9 @@ with tab_scan:
         st.error(f"Scan failed: {scan['error']}")
 
     if scan["running"]:
-        i, total, symbol = scan.get("progress", (0, 0, ""))
-        pct = min((i + 1) / total, 0.99) if total > 0 else 0
-        st.progress(pct, text=f"Scanning {symbol}... ({i + 1}/{total})")
+        done, total, symbol = scan.get("progress", (0, 0, ""))
+        pct = min(done / total, 0.99) if total > 0 else 0
+        st.progress(pct, text=f"Scanning… ({done}/{total}) last: {symbol}")
         time.sleep(0.5)
         st.rerun()
 

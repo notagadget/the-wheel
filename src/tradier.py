@@ -19,11 +19,18 @@ See docs/architecture.md for how this module fits into the system.
 """
 
 import os
+import threading
 import requests
 from typing import Optional
 from datetime import date, timedelta
 
 import streamlit as st
+
+
+# Gate concurrent Tradier requests to stay under the 120/min burst ceiling
+# when the scanner parallelizes across workers. Module-level so it covers
+# every caller, not just the scanner path.
+_TRADIER_SEM = threading.Semaphore(4)
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +99,8 @@ def _headers(api_key: str) -> dict:
 
 def _get(path: str, params: dict = None) -> dict:
     base, api_key, _ = _get_config()
-    resp = requests.get(f"{base}{path}", headers=_headers(api_key), params=params, timeout=10)
+    with _TRADIER_SEM:
+        resp = requests.get(f"{base}{path}", headers=_headers(api_key), params=params, timeout=10)
     if resp.status_code == 401:
         raise TradierAuthError("Tradier auth failed — check TRADIER_API_KEY.")
     resp.raise_for_status()

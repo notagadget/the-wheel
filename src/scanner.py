@@ -7,6 +7,7 @@ Uses Tradier for quotes and price history; Massive for company info only.
 
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Optional
 from functools import lru_cache
 from datetime import date, timedelta
@@ -345,14 +346,19 @@ def scan_universe(
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     stop_event: Optional[threading.Event] = None,
     skip_strategies: set[str] | None = None,
+    max_workers: int = 5,
 ) -> tuple[list[dict], dict]:
     """
     Scan a universe of tickers against all strategies.
 
     Defaults tickers to get_sp500_tickers().
-    Calls progress_callback(i, total, symbol) if provided.
-    If stop_event is set, exits after current ticker (early stop).
+    Calls progress_callback(i, total, symbol) as each ticker completes (may
+    arrive out of submission order).
+    If stop_event is set, pending tickers are skipped and in-flight ones finish.
     Sorts results: passes_any=True first, then by most criteria passing, errors last.
+
+    max_workers caps parallel ticker scans. Concurrent Tradier requests are
+    further gated by a semaphore inside tradier._get (see src/tradier.py).
 
     Returns: (results, timing_stats) where timing_stats has keys:
       total_ms, avg_per_ticker_ms, min_per_ticker_ms, max_per_ticker_ms
@@ -360,15 +366,6 @@ def scan_universe(
     if tickers is None:
         tickers = massive.get_sp500_tickers()
 
-    results = []
-    timings = []
-    fetch_profiles = {
-        "quote_ms": [],
-        "ticker_details_ms": [],
-        "daily_bars_ms": [],
-        "avg_volume_ms": [],
-    }
-    strategy_profiles = {}
     start_time = time.time()
 
     # Batch-fetch all quotes at once before scanning
@@ -376,23 +373,67 @@ def scan_universe(
     quotes_cache = tradier.get_quotes(tickers)
     batch_quote_ms = (time.time() - batch_quote_start) * 1000
 
+    results: list[dict] = []
+    progress_lock = threading.Lock()
+    completed_count = 0
+    total = len(tickers)
 
-    for i, symbol in enumerate(tickers):
-        if stop_event and stop_event.is_set():
-            break
-        if progress_callback:
-            progress_callback(i, len(tickers), symbol)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        future_to_symbol = {
+            pool.submit(
+                scan_ticker,
+                symbol,
+                quotes_cache=quotes_cache,
+                hiv_cache=None,
+                skip_strategies=skip_strategies,
+            ): symbol
+            for symbol in tickers
+        }
 
-        result = scan_ticker(symbol, quotes_cache=quotes_cache, hiv_cache=None, skip_strategies=skip_strategies)
-        results.append(result)
+        for future in as_completed(future_to_symbol):
+            symbol = future_to_symbol[future]
+            if stop_event and stop_event.is_set():
+                # Cancel anything that hasn't started yet; in-flight futures finish.
+                for f in future_to_symbol:
+                    if not f.done():
+                        f.cancel()
+                break
+            try:
+                result = future.result()
+            except Exception as e:
+                result = {
+                    "symbol": symbol,
+                    "error": f"scan failed: {e}",
+                    "strategies": {},
+                    "passes_any": False,
+                    "name": None,
+                    "price": None,
+                    "market_cap_b": None,
+                }
+            results.append(result)
+
+            with progress_lock:
+                completed_count += 1
+                if progress_callback:
+                    progress_callback(completed_count, total, symbol)
+
+    # Aggregate timings & profiles serially after all workers return
+    timings: list[float] = []
+    fetch_profiles = {
+        "quote_ms": [],
+        "ticker_details_ms": [],
+        "daily_bars_ms": [],
+        "avg_volume_ms": [],
+    }
+    strategy_profiles: dict = {}
+
+    for result in results:
         if "_timing" in result:
             timings.append(result["_timing"]["total_ms"])
             profile = result["_timing"].get("fetch_profile", {})
             for key, val in profile.items():
                 if key in fetch_profiles:
                     fetch_profiles[key].append(val)
-
-        # Aggregate strategy timings
         for strategy_name, strategy_result in result.get("strategies", {}).items():
             strat_prof = strategy_result.get("_strategy_profile", {})
             if strat_prof:

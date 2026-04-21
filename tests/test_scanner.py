@@ -1,6 +1,7 @@
 """Tests for src/scanner.py and src/massive.py — equity scanning logic."""
 
 import pytest
+import threading
 from unittest.mock import patch, MagicMock
 from datetime import date, timedelta
 
@@ -705,19 +706,27 @@ def test_scan_universe_sorts_errors_last(mock_scan_ticker):
 
 @patch("src.scanner.scan_ticker")
 def test_scan_universe_calls_progress_callback(mock_scan_ticker):
-    """scan_universe calls progress_callback with correct args."""
+    """scan_universe calls progress_callback once per completed ticker."""
     mock_scan_ticker.return_value = _make_result("AAPL", passes_any=True)
 
     callback_calls = []
+    lock = threading.Lock()
 
-    def progress_cb(i, total, symbol):
-        callback_calls.append((i, total, symbol))
+    def progress_cb(done, total, symbol):
+        with lock:
+            callback_calls.append((done, total, symbol))
 
-    scanner.scan_universe(tickers=["AAPL", "MSFT"], progress_callback=progress_cb)
+    scanner.scan_universe(
+        tickers=["AAPL", "MSFT"],
+        progress_callback=progress_cb,
+        max_workers=1,
+    )
 
+    # With max_workers=1, completion order matches submission order
     assert len(callback_calls) == 2
-    assert callback_calls[0] == (0, 2, "AAPL")
-    assert callback_calls[1] == (1, 2, "MSFT")
+    assert callback_calls[0][:2] == (1, 2)
+    assert callback_calls[1][:2] == (2, 2)
+    assert {c[2] for c in callback_calls} == {"AAPL", "MSFT"}
 
 
 # ---------------------------------------------------------------------------
