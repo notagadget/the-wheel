@@ -51,13 +51,17 @@ def test_get_config_live(monkeypatch):
 
 
 def test_get_config_missing_key_raises(monkeypatch):
+    import streamlit as st
     monkeypatch.delenv("TRADIER_API_KEY", raising=False)
+    monkeypatch.setattr(st, "secrets", {})
     with pytest.raises(TradierAuthError, match="TRADIER_API_KEY"):
         _get_config()
 
 
 def test_get_config_missing_account_raises(monkeypatch):
+    import streamlit as st
     monkeypatch.delenv("TRADIER_ACCOUNT_ID", raising=False)
+    monkeypatch.setattr(st, "secrets", {})
     with pytest.raises(TradierAuthError, match="TRADIER_ACCOUNT_ID"):
         _get_config()
 

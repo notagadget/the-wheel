@@ -213,8 +213,8 @@ def get_options_chain(
 
 
 @st.cache_data(ttl=86400)
-def get_expirations(symbol: str) -> tuple:
-    """Returns tuple of available expiration dates (YYYY-MM-DD) for a symbol (cached)."""
+def get_expirations(symbol: str) -> list:
+    """Returns list of available expiration dates (YYYY-MM-DD) for a symbol (cached)."""
     resp = _get("/v1/markets/options/expirations", {
         "symbol":           symbol,
         "includeAllRoots":  "true",
@@ -223,7 +223,7 @@ def get_expirations(symbol: str) -> tuple:
     dates = resp.get("expirations", {}).get("date", [])
     if isinstance(dates, str):
         dates = [dates]
-    return tuple(dates)
+    return list(dates)
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +231,7 @@ def get_expirations(symbol: str) -> tuple:
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=86400)
-def get_historical_iv(symbol: str, days: int = 365) -> tuple:
+def get_historical_iv(symbol: str, days: int = 365) -> list:
     """
     Fetch historical daily options data to derive IV history.
     Returns list of {date, iv} dicts sorted oldest-first.
@@ -269,7 +269,7 @@ def get_historical_iv(symbol: str, days: int = 365) -> tuple:
     # Compute 30-day rolling HV from close prices as IV proxy
     closes = [float(d["close"]) for d in history if d.get("close")]
     if len(closes) < 31:
-        return ()
+        return []
 
     import math
     result = []
@@ -284,7 +284,7 @@ def get_historical_iv(symbol: str, days: int = 365) -> tuple:
             "iv":   round(hv_30, 4),
         })
 
-    return tuple(result)
+    return result
 
 
 @st.cache_data(ttl=300)
