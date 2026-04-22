@@ -12,7 +12,7 @@ from src.eligibility import (
     remove_underlying,
     update_eligibility,
 )
-from src.scanner import scan_universe
+from src.scanner import scan_universe, scan_ticker
 from src.massive import MassiveAuthError, get_sp500_tickers
 from src.db import get_conn
 from src.ui_helpers import format_si
@@ -177,32 +177,78 @@ def _render_scan_result_table(result: dict, collapsed: bool = False, index: int 
                 html_parts.append('</thead>')
 
             html_parts.append('<tbody>')
-            for crit_name, crit_data in strat_data.get("criteria", {}).items():
-                formatted = _format_criterion_cell(crit_data)
+            criteria_dict = strat_data.get("criteria", {})
+            skip_next = False
 
-                if formatted["passed"] is True:
-                    status_icon = "✅"
-                    status_color = "#2ecc71"
-                elif formatted["passed"] is False:
-                    status_icon = "❌"
-                    status_color = "#e74c3c"
+            for crit_name, crit_data in criteria_dict.items():
+                if skip_next:
+                    skip_next = False
+                    continue
+
+                # Combine min_price and max_price into single row
+                if crit_name == "min_price" and "max_price" in criteria_dict:
+                    min_formatted = _format_criterion_cell(crit_data)
+                    max_formatted = _format_criterion_cell(criteria_dict["max_price"])
+
+                    # Both min and max passed
+                    if min_formatted["passed"] is True and max_formatted["passed"] is True:
+                        status_icon = "✅"
+                        status_color = "#2ecc71"
+                    # Either one failed
+                    elif min_formatted["passed"] is False or max_formatted["passed"] is False:
+                        status_icon = "❌"
+                        status_color = "#e74c3c"
+                    # One or both unknown
+                    else:
+                        status_icon = "⚠️"
+                        status_color = "#f39c12"
+
+                    threshold_str = f"{min_formatted['threshold']} – {max_formatted['threshold']}"
+
+                    html_parts.append(
+                        '<tr style="border-bottom: 0.5px solid var(--color-border-tertiary, #ddd);">'
+                    )
+                    html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">Price</td>')
+                    html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{min_formatted["value"]}</td>')
+                    html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{threshold_str}</td>')
+                    html_parts.append(
+                        f'<td style="padding: 0.2rem 0.35rem; color: {status_color}; font-weight: bold;">{status_icon}</td>'
+                    )
+                    html_parts.append(
+                        f'<td style="padding: 0.2rem 0.35rem; font-size: 0.7rem; color: gray;"></td>'
+                    )
+                    html_parts.append('</tr>')
+                    skip_next = True  # Skip max_price on next iteration
+
+                elif crit_name == "max_price":
+                    # Skip if already handled with min_price
+                    continue
                 else:
-                    status_icon = "⚠️"
-                    status_color = "#f39c12"
+                    formatted = _format_criterion_cell(crit_data)
 
-                html_parts.append(
-                    '<tr style="border-bottom: 0.5px solid var(--color-border-tertiary, #ddd);">'
-                )
-                html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{_format_criterion_name(crit_name)}</td>')
-                html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{formatted["value"]}</td>')
-                html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{formatted["threshold"]}</td>')
-                html_parts.append(
-                    f'<td style="padding: 0.2rem 0.35rem; color: {status_color}; font-weight: bold;">{status_icon}</td>'
-                )
-                html_parts.append(
-                    f'<td style="padding: 0.2rem 0.35rem; font-size: 0.7rem; color: gray;">{formatted["note"]}</td>'
-                )
-                html_parts.append('</tr>')
+                    if formatted["passed"] is True:
+                        status_icon = "✅"
+                        status_color = "#2ecc71"
+                    elif formatted["passed"] is False:
+                        status_icon = "❌"
+                        status_color = "#e74c3c"
+                    else:
+                        status_icon = "⚠️"
+                        status_color = "#f39c12"
+
+                    html_parts.append(
+                        '<tr style="border-bottom: 0.5px solid var(--color-border-tertiary, #ddd);">'
+                    )
+                    html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{_format_criterion_name(crit_name)}</td>')
+                    html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{formatted["value"]}</td>')
+                    html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{formatted["threshold"]}</td>')
+                    html_parts.append(
+                        f'<td style="padding: 0.2rem 0.35rem; color: {status_color}; font-weight: bold;">{status_icon}</td>'
+                    )
+                    html_parts.append(
+                        f'<td style="padding: 0.2rem 0.35rem; font-size: 0.7rem; color: gray;">{formatted["note"]}</td>'
+                    )
+                    html_parts.append('</tr>')
 
             html_parts.append('</tbody>')
             html_parts.append('</table>')
@@ -213,24 +259,15 @@ def _render_scan_result_table(result: dict, collapsed: bool = False, index: int 
         st.html(html_content)
 
         passing_strategies = [s for s, d in strategies.items() if d.get("passes_all")]
-        strategy_options = passing_strategies if passing_strategies else list(STRATEGIES.keys())
 
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            selected_strategies = st.multiselect(
-                "Add with strategies",
-                options=strategy_options,
-                default=passing_strategies[:1] if passing_strategies else [],
-                key=f"add_strategy_{symbol}_{index}",
-            )
-        with col2:
-            st.write("")
-            if st.button("✨ Add to watchlist", key=f"add_scan_{symbol}_{index}"):
-                if not selected_strategies:
-                    st.warning("Select at least one strategy.")
-                else:
-                    _add_from_scan(symbol, selected_strategies)
-                    st.rerun()
+        if st.button(
+            "✨ Add to watchlist",
+            key=f"add_scan_{symbol}_{index}",
+            disabled=not passing_strategies,
+            help="Only enabled if at least one strategy passes" if not passing_strategies else None,
+        ):
+            _add_from_scan(symbol, passing_strategies)
+            st.rerun()
 
 
 def _render_scan_result(result: dict, collapsed: bool = False, index: int = 0):
@@ -280,13 +317,13 @@ def _add_from_scan(symbol: str, strategies: list[str]):
     )
 
 
-tab_eligible, tab_review, tab_scan = st.tabs(["Eligible", "Review Queue", "Scan"])
+tab_eligible, tab_review, tab_scan = st.tabs(["Watchlist", "Review Queue", "Scan"])
 
 # ---------------------------------------------------------------------------
 # Tab 1 — Eligible tickers
 # ---------------------------------------------------------------------------
 with tab_eligible:
-    st.subheader("Eligible Tickers")
+    st.subheader("Watchlist")
 
     strategy_filter = st.selectbox(
         "Filter by strategy",
@@ -299,29 +336,105 @@ with tab_eligible:
     )
 
     if not eligible:
-        st.info("No eligible tickers. Add some in the Review Queue tab.")
+        st.info("No watchlist tickers yet. Add some in the Review Queue tab.")
     else:
         # Sort by conviction desc, then ticker
         eligible.sort(key=lambda r: (-r["conviction"], r["ticker"]))
 
+        STRATEGY_LABELS = {
+            "ETF_COMPONENT": "ETF",
+            "FUNDAMENTAL": "Fundamental",
+            "TECHNICAL": "Technical",
+            "VOL_PREMIUM": "Vol Premium",
+        }
+
         st.caption(f"{len(eligible)} ticker(s)")
-        header_cols = st.columns([2, 3, 2, 3, 2])
+        header_cols = st.columns([1.5, 2.5, 1.5, 1.5, 1, 1])
         header_cols[0].caption("Ticker")
-        header_cols[1].caption("Strategies")
+        with header_cols[1].container():
+            strat_header_cols = st.columns(len(STRATEGIES))
+            for i, strategy in enumerate(sorted(STRATEGIES.keys())):
+                label = STRATEGY_LABELS.get(strategy, strategy)
+                with strat_header_cols[i]:
+                    st.markdown(
+                        f'<div style="height:90px;display:flex;align-items:flex-end;justify-content:flex-start;">'
+                        f'<span style="writing-mode:vertical-lr;transform:rotate(180deg);'
+                        f'font-size:0.8rem;color:gray;white-space:nowrap;">{label}</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
         header_cols[2].caption("IV Rank")
         header_cols[3].caption("Notes")
         header_cols[4].caption("")
+        header_cols[5].caption("")
 
         for row in eligible:
-            cols = st.columns([2, 3, 2, 3, 2])
+            cols = st.columns([1.5, 2.5, 1.5, 1.5, 1, 1])
             cols[0].write(row["ticker"])
-            badges = " ".join(f"`{s}`" for s in sorted(row["strategies"]))
-            cols[1].markdown(badges or "—")
+
+            # Strategy checkboxes (rendered horizontally)
+            with cols[1].container():
+                current_strategies = set(row["strategies"])
+                new_strategies = set()
+                strat_cols = st.columns(len(STRATEGIES))
+
+                for i, strategy in enumerate(sorted(STRATEGIES.keys())):
+                    is_checked = strategy in current_strategies
+                    with strat_cols[i]:
+                        if st.checkbox(
+                            strategy,
+                            value=is_checked,
+                            label_visibility="collapsed",
+                            key=f"strategy_{row['ticker']}_{strategy}",
+                        ):
+                            new_strategies.add(strategy)
+
+                # Update if strategies changed
+                if new_strategies != current_strategies:
+                    update_eligibility(
+                        ticker=row["ticker"],
+                        eligible=True,
+                        strategies=list(new_strategies),
+                        quality_notes=row["quality_notes"],
+                    )
+                    st.rerun()
+
             cols[2].write(
                 f"{row['iv_rank_cached']:.1f}%" if row["iv_rank_cached"] is not None else "—"
             )
-            cols[3].write(row["quality_notes"] or "")
-            if cols[4].button("Mark ineligible", key=f"inelig_{row['ticker']}"):
+
+            # Notes and re-check button
+            with cols[3].container():
+                cols[3].write(row["quality_notes"] or "—")
+                if st.button("🔄", key=f"recheck_{row['ticker']}", help="Re-check eligibility"):
+                    with st.spinner(f"Re-checking {row['ticker']}..."):
+                        try:
+                            result = scan_ticker(
+                                row["ticker"],
+                                quotes_cache={},
+                                hiv_cache={},
+                                skip_strategies=None,
+                            )
+                            if result.get("error"):
+                                st.error(f"Error: {result['error']}")
+                            else:
+                                passing = [s for s, d in result.get("strategies", {}).items() if d.get("passes_all")]
+                                if passing:
+                                    update_eligibility(
+                                        ticker=row["ticker"],
+                                        eligible=True,
+                                        strategies=passing,
+                                        quality_notes=f"Re-checked: {', '.join(passing)}",
+                                    )
+                                    st.success(f"Updated to: {', '.join(passing)}")
+                                    st.rerun()
+                                else:
+                                    st.warning("No strategies passed.")
+                        except Exception as e:
+                            st.error(f"Re-check failed: {str(e)}")
+
+            # Remove button (compact)
+            if cols[5].button("🗑️", key=f"remove_{row['ticker']}", help="Remove from watchlist"):
                 update_eligibility(
                     ticker=row["ticker"],
                     eligible=False,
