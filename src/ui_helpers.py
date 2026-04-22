@@ -20,11 +20,12 @@ def format_si(value: float) -> str:
     """Format a number using SI suffixes (K, M, B)."""
     if value is None:
         return "—"
-    if value >= 1_000_000_000:
+    abs_val = abs(value)
+    if abs_val >= 1_000_000_000:
         return f"{value / 1_000_000_000:.1f}B"
-    if value >= 1_000_000:
+    if abs_val >= 1_000_000:
         return f"{value / 1_000_000:.1f}M"
-    if value >= 1_000:
+    if abs_val >= 1_000:
         return f"{value / 1_000:.1f}K"
     return f"{value:.0f}"
 

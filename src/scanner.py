@@ -20,11 +20,12 @@ def _format_si(value: float) -> str:
     """Format a number using SI units (K, M, B)."""
     if value is None:
         return "—"
-    if value >= 1_000_000_000:
+    abs_val = abs(value)
+    if abs_val >= 1_000_000_000:
         return f"{value / 1_000_000_000:.1f}B"
-    if value >= 1_000_000:
+    if abs_val >= 1_000_000:
         return f"{value / 1_000_000:.1f}M"
-    if value >= 1_000:
+    if abs_val >= 1_000:
         return f"{value / 1_000:.1f}K"
     return f"{value:.0f}"
 
@@ -158,8 +159,8 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
         criteria["above_200dma"] = {
             "passed": price > sma_200 if price and sma_200 else None,
             "value": sma_200,
-            "threshold": "price > 200-day SMA",
-            "note": f"Current SMA: ${sma_200:.2f}" if sma_200 else "Insufficient bar data for SMA-200",
+            "threshold": "SMA-200",
+            "note": "Insufficient bar data for SMA-200" if not sma_200 else "",
         }
 
         rsi_min = strat_config.get("rsi_min", 30.0)
@@ -170,7 +171,7 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
             "passed": rsi >= rsi_min if rsi else None,
             "value": rsi,
             "threshold": rsi_min,
-            "note": f"RSI(14): {rsi:.1f}" if rsi else "Unable to compute RSI",
+            "note": "Unable to compute RSI" if rsi is None else "",
         }
 
     elif strategy == "FUNDAMENTAL":
@@ -180,11 +181,14 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
         strat_profile["fundamentals_ms"] = (time.time() - t) * 1000
 
         fcf = fundamentals.get("free_cash_flow")
+        fcf_display = fcf
+        fcf_note = "FCF unavailable" if fcf is None else ""
+
         criteria["requires_positive_cashflow"] = {
             "passed": fcf > 0 if fcf is not None else None,
-            "value": fcf,
-            "threshold": "Positive FCF",
-            "note": f"FCF: ${_format_si(fcf)}" if fcf is not None else "FCF unavailable",
+            "value": fcf_display,
+            "threshold": "Positive",
+            "note": fcf_note,
         }
 
         de_ratio = fundamentals.get("debt_to_equity")
@@ -193,7 +197,7 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
             "passed": de_ratio <= max_de if de_ratio is not None else None,
             "value": de_ratio,
             "threshold": max_de,
-            "note": f"D/E: {de_ratio:.2f}" if de_ratio is not None else "D/E unavailable",
+            "note": "D/E unavailable" if de_ratio is None else "",
         }
 
     elif strategy == "ETF_COMPONENT":
@@ -206,7 +210,7 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
             "passed": inst_pct >= min_inst if inst_pct is not None else None,
             "value": inst_pct,
             "threshold": min_inst,
-            "note": f"{inst_pct:.1f}% institutional" if inst_pct is not None else "yfinance unavailable",
+            "note": "yfinance unavailable" if inst_pct is None else "",
         }
 
     elif strategy == "VOL_PREMIUM":

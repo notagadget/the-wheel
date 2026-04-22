@@ -32,13 +32,17 @@ def _format_criterion_cell(crit_data: dict) -> dict:
 
     if isinstance(value, dict):
         value_str = ", ".join(f"{k}={v}" for k, v in value.items() if v is not None)
-    elif isinstance(value, float):
-        value_str = format_si(value) if value > 1_000 else f"{value:.2f}"
+    elif isinstance(value, (int, float)):
+        # Use SI formatting for values with |value| > 1K, otherwise show with 2 decimals
+        value_str = format_si(value) if abs(value) > 1_000 else f"{value:.2f}"
     else:
         value_str = str(value) if value is not None else "—"
 
-    if isinstance(threshold, (int, float)) and threshold > 1_000:
-        threshold_str = format_si(threshold)
+    if isinstance(threshold, (int, float)):
+        if threshold > 1_000:
+            threshold_str = format_si(threshold)
+        else:
+            threshold_str = f"{threshold:.2f}" if isinstance(threshold, float) else str(threshold)
     else:
         threshold_str = str(threshold) if threshold is not None else "—"
 
@@ -53,7 +57,95 @@ def _format_criterion_cell(crit_data: dict) -> dict:
 
 
 def _format_criterion_name(key: str) -> str:
-    return key.replace("_", " ").capitalize()
+    """Format criterion name for display with proper units."""
+    labels = {
+        "min_price": "Min Price",
+        "max_price": "Max Price",
+        "min_market_cap_b": "Min Market Cap",
+        "min_avg_volume": "Min Avg Volume",
+        "above_200dma": "Above 200-DMA",
+        "rsi": "RSI(14)",
+        "requires_positive_cashflow": "Free Cash Flow",
+        "max_debt_equity": "Debt/Equity Ratio",
+        "min_institutional_ownership_pct": "Institutional Ownership",
+        "min_iv_hv_ratio": "IV/HV Ratio",
+        "min_iv_rank": "IV Rank",
+    }
+    return labels.get(key, key.replace("_", " ").title())
+
+
+def _add_units_to_value(criterion_name: str, value_str: str) -> str:
+    """Add appropriate units to a criterion value for display."""
+    if value_str == "—":
+        return value_str
+
+    units_map = {
+        "min_price": "$",
+        "max_price": "$",
+        "min_market_cap_b": "$",
+        "requires_positive_cashflow": "$",
+        "min_avg_volume": "",
+        "min_institutional_ownership_pct": "%",
+        "rsi": "",
+        "above_200dma": "$",
+        "max_debt_equity": "",
+        "min_iv_hv_ratio": "x",
+        "min_iv_rank": "%",
+    }
+
+    unit = units_map.get(criterion_name, "")
+    if unit == "$":
+        if value_str.startswith("-"):
+            # Handle negative values: -270.7M -> $-270.7M
+            return f"$-{value_str[1:]}" if not value_str.startswith("-$") else value_str
+        elif not value_str.startswith("$"):
+            return f"${value_str}"
+    elif unit == "%" and not value_str.endswith("%"):
+        return f"{value_str}%"
+    elif unit == "x" and not value_str.endswith("x"):
+        return f"{value_str}x"
+
+    return value_str
+
+
+def _add_units_to_threshold(criterion_name: str, threshold_str: str) -> str:
+    """Add appropriate units to a criterion threshold for display."""
+    if threshold_str == "—" or threshold_str == "Positive":
+        return threshold_str
+
+    # Only add units to numeric-looking thresholds
+    try:
+        float(threshold_str.replace(",", ""))
+        is_numeric = True
+    except ValueError:
+        is_numeric = False
+
+    if not is_numeric:
+        return threshold_str
+
+    units_map = {
+        "min_price": "$",
+        "max_price": "$",
+        "min_market_cap_b": "$",
+        "requires_positive_cashflow": "$",
+        "min_avg_volume": "",
+        "min_institutional_ownership_pct": "%",
+        "rsi": "",
+        "above_200dma": "$",
+        "max_debt_equity": "",
+        "min_iv_hv_ratio": "x",
+        "min_iv_rank": "%",
+    }
+
+    unit = units_map.get(criterion_name, "")
+    if unit == "$" and not threshold_str.startswith("$"):
+        return f"${threshold_str}"
+    elif unit == "%" and not threshold_str.endswith("%"):
+        return f"{threshold_str}%"
+    elif unit == "x" and not threshold_str.endswith("x"):
+        return f"{threshold_str}x"
+
+    return threshold_str
 
 
 def _render_criterion(crit_name: str, crit_data: dict):
@@ -205,13 +297,13 @@ def _render_scan_result_table(result: dict, collapsed: bool = False, index: int 
                         status_icon = "⚠️"
                         status_color = "#f39c12"
 
-                    threshold_str = f"{min_formatted['threshold']} – {max_formatted['threshold']}"
+                    threshold_str = f"${min_formatted['threshold']} – ${max_formatted['threshold']}"
 
                     html_parts.append(
                         '<tr style="border-bottom: 0.5px solid var(--color-border-tertiary, #ddd);">'
                     )
                     html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">Price</td>')
-                    html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{min_formatted["value"]}</td>')
+                    html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">${min_formatted["value"]}</td>')
                     html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{threshold_str}</td>')
                     html_parts.append(
                         f'<td style="padding: 0.2rem 0.35rem; color: {status_color}; font-weight: bold;">{status_icon}</td>'
@@ -238,12 +330,15 @@ def _render_scan_result_table(result: dict, collapsed: bool = False, index: int 
                         status_icon = "⚠️"
                         status_color = "#f39c12"
 
+                    value_display = _add_units_to_value(crit_name, formatted["value"])
+                    threshold_display = _add_units_to_threshold(crit_name, formatted["threshold"])
+
                     html_parts.append(
                         '<tr style="border-bottom: 0.5px solid var(--color-border-tertiary, #ddd);">'
                     )
                     html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{_format_criterion_name(crit_name)}</td>')
-                    html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{formatted["value"]}</td>')
-                    html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{formatted["threshold"]}</td>')
+                    html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{value_display}</td>')
+                    html_parts.append(f'<td style="padding: 0.2rem 0.35rem;">{threshold_display}</td>')
                     html_parts.append(
                         f'<td style="padding: 0.2rem 0.35rem; color: {status_color}; font-weight: bold;">{status_icon}</td>'
                     )
