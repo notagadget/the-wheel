@@ -6,6 +6,7 @@ import traceback
 import streamlit as st
 from src.eligibility import (
     STRATEGIES,
+    STRATEGY_LABELS,
     add_underlying,
     get_eligible_underlyings,
     get_ineligible_underlyings,
@@ -132,13 +133,14 @@ def _render_scan_result_table(result: dict, collapsed: bool = False, index: int 
             icon = "✅" if strat_passes else "❌"
             desc = STRATEGIES[strat_name]["description"]
 
+            strat_label = STRATEGY_LABELS.get(strat_name, strat_name)
             html_parts.append(
                 f'<div style="'
                 f'margin-top: 0.5rem; '
                 f'margin-bottom: 0.3rem; '
                 f'font-weight: bold;'
                 f'font-size: 0.875rem;'
-                f'">{icon} {strat_name} — <em>{desc}</em></div>'
+                f'">{icon} {strat_label} — <em>{desc}</em></div>'
             )
 
             html_parts.append(
@@ -309,11 +311,12 @@ def _render_timing_stats(ts: dict):
 def _add_from_scan(symbol: str, strategies: list[str]):
     """Add ticker to underlying and mark eligible with one or more strategies."""
     add_underlying(symbol)
+    strategy_labels = [STRATEGY_LABELS.get(s, s) for s in strategies]
     update_eligibility(
         ticker=symbol,
         eligible=True,
         strategies=strategies,
-        quality_notes=f"Added via scanner ({', '.join(strategies)})",
+        quality_notes=f"Added via scanner ({', '.join(strategy_labels)})",
     )
 
 
@@ -325,14 +328,16 @@ tab_eligible, tab_review, tab_scan = st.tabs(["Watchlist", "Review Queue", "Scan
 with tab_eligible:
     st.subheader("Watchlist")
 
-    strategy_filter = st.selectbox(
+    strategy_options_filter = {STRATEGY_LABELS.get(k, k): k for k in STRATEGIES.keys()}
+    strategy_filter_label = st.selectbox(
         "Filter by strategy",
-        options=["All"] + list(STRATEGIES.keys()),
+        options=["All"] + list(strategy_options_filter.keys()),
         index=0,
     )
+    strategy_filter = None if strategy_filter_label == "All" else strategy_options_filter[strategy_filter_label]
 
     eligible = get_eligible_underlyings(
-        strategy=None if strategy_filter == "All" else strategy_filter
+        strategy=strategy_filter
     )
 
     if not eligible:
@@ -340,13 +345,6 @@ with tab_eligible:
     else:
         # Sort by conviction desc, then ticker
         eligible.sort(key=lambda r: (-r["conviction"], r["ticker"]))
-
-        STRATEGY_LABELS = {
-            "ETF_COMPONENT": "ETF",
-            "FUNDAMENTAL": "Fundamental",
-            "TECHNICAL": "Technical",
-            "VOL_PREMIUM": "Vol Premium",
-        }
 
         st.caption(f"{len(eligible)} ticker(s)")
         header_cols = st.columns([1.5, 2.5, 1.5, 1.5, 1, 1])
@@ -372,32 +370,17 @@ with tab_eligible:
             cols = st.columns([1.5, 2.5, 1.5, 1.5, 1, 1])
             cols[0].write(row["ticker"])
 
-            # Strategy checkboxes (rendered horizontally)
+            # Strategy status indicators (read-only, updated via re-check)
             with cols[1].container():
                 current_strategies = set(row["strategies"])
-                new_strategies = set()
                 strat_cols = st.columns(len(STRATEGIES))
-
                 for i, strategy in enumerate(sorted(STRATEGIES.keys())):
-                    is_checked = strategy in current_strategies
-                    with strat_cols[i]:
-                        if st.checkbox(
-                            strategy,
-                            value=is_checked,
-                            label_visibility="collapsed",
-                            key=f"strategy_{row['ticker']}_{strategy}",
-                        ):
-                            new_strategies.add(strategy)
-
-                # Update if strategies changed
-                if new_strategies != current_strategies:
-                    update_eligibility(
-                        ticker=row["ticker"],
-                        eligible=True,
-                        strategies=list(new_strategies),
-                        quality_notes=row["quality_notes"],
+                    emoji = "✅" if strategy in current_strategies else "❌"
+                    strat_cols[i].markdown(
+                        f'<div title="{STRATEGY_LABELS.get(strategy, strategy)}" '
+                        f'style="text-align:center;font-size:1.1rem;">{emoji}</div>',
+                        unsafe_allow_html=True,
                     )
-                    st.rerun()
 
             cols[2].write(
                 f"{row['iv_rank_cached']:.1f}%" if row["iv_rank_cached"] is not None else "—"
@@ -420,11 +403,12 @@ with tab_eligible:
                             else:
                                 passing = [s for s, d in result.get("strategies", {}).items() if d.get("passes_all")]
                                 if passing:
+                                    passing_labels = [STRATEGY_LABELS.get(s, s) for s in passing]
                                     update_eligibility(
                                         ticker=row["ticker"],
                                         eligible=True,
                                         strategies=passing,
-                                        quality_notes=f"Re-checked: {', '.join(passing)}",
+                                        quality_notes=f"Re-checked: {', '.join(passing_labels)}",
                                     )
                                     st.success(f"Updated to: {', '.join(passing)}")
                                     st.rerun()
@@ -460,14 +444,16 @@ with tab_review:
             with st.expander(row["ticker"], expanded=False):
                 with st.form(key=f"form_{row['ticker']}"):
                     eligible_input = st.checkbox("Mark as eligible", value=False)
-                    strategies_input = st.multiselect(
+                    strategy_options = {STRATEGY_LABELS.get(k, k): k for k in STRATEGIES.keys()}
+                    strategies_input_labels = st.multiselect(
                         "Strategies",
-                        options=list(STRATEGIES.keys()),
+                        options=list(strategy_options.keys()),
                         default=[],
                         help="\n".join(
-                            f"**{k}**: {v['description']}" for k, v in STRATEGIES.items()
+                            f"**{STRATEGY_LABELS.get(k, k)}**: {v['description']}" for k, v in STRATEGIES.items()
                         ),
                     )
+                    strategies_input = [strategy_options[label] for label in strategies_input_labels]
                     notes_input = st.text_input(
                         "Notes",
                         value=row["notes"] or "",
@@ -529,7 +515,7 @@ with tab_scan:
     )
 
     fast_mode = st.checkbox(
-        "⚡ Fast Mode (skip VOL_PREMIUM — saves ~1s/ticker)",
+        "⚡ Fast Mode (skip Vol Premium — saves ~1s/ticker)",
         value=False,
         help="Skips volatility analysis. Use for quick screening; run full scan to confirm candidates.",
     )
@@ -666,12 +652,14 @@ with tab_scan:
                 )
             _fc3, _fc4, _fc5 = st.columns(3)
             with _fc3:
-                required_strats = st.multiselect(
+                strategy_options_scan = {STRATEGY_LABELS.get(k, k): k for k in STRATEGIES.keys()}
+                required_strats_labels = st.multiselect(
                     "Must pass strategies",
-                    options=list(STRATEGIES.keys()),
+                    options=list(strategy_options_scan.keys()),
                     default=[],
                     key="scan_required_strats",
                 )
+                required_strats = [strategy_options_scan[label] for label in required_strats_labels]
             with _fc4:
                 price_min = st.number_input(
                     "Min price ($)", min_value=0.0, value=0.0, step=5.0, format="%.0f",

@@ -53,6 +53,13 @@ STRATEGIES: dict[str, dict] = {
     },
 }
 
+STRATEGY_LABELS = {
+    "FUNDAMENTAL": "Fundamental",
+    "TECHNICAL": "Technical",
+    "ETF_COMPONENT": "ETF",
+    "VOL_PREMIUM": "Vol Premium",
+}
+
 
 def get_eligible_underlyings(strategy: str | None = None) -> list[dict]:
     """
