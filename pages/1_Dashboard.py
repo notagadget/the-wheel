@@ -54,7 +54,7 @@ def _get_pending_fills() -> list[dict]:
             "SELECT t.trade_id, t.cycle_id, t.underlying_id, t.trade_type, "
             "t.filled_at, t.broker_order_id "
             "FROM trade t WHERE t.fill_status='PENDING' "
-            "ORDER BY t.filled_at DESC"
+            "ORDER BY t.filled_at DESC LIMIT 50"
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -138,7 +138,7 @@ with st.expander("Closed cycles"):
 # ---------------------------------------------------------------------------
 
 st.divider()
-status_cols = st.columns([1, 1, 4])
+status_cols = st.columns(2)
 with status_cols[0]:
     if _status["running"]:
         st.caption("🟢 Poller running")

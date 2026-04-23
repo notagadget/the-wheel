@@ -515,6 +515,9 @@ with tab_eligible:
             # Remove button (two-click confirm)
             confirm_key = f"confirm_remove_{row['ticker']}"
             if st.session_state.get(confirm_key):
+                if cols[4].button("✕", key=f"cancel_remove_{row['ticker']}", help="Cancel removal"):
+                    st.session_state.pop(confirm_key, None)
+                    st.rerun()
                 if cols[5].button("⚠️ Confirm", key=f"confirm_btn_{row['ticker']}", help="Click again to remove"):
                     update_eligibility(
                         ticker=row["ticker"],
@@ -580,7 +583,11 @@ with tab_review:
 
                 confirm_key_review = f"confirm_remove_review_{row['ticker']}"
                 if st.session_state.get(confirm_key_review):
-                    if st.button("⚠️ Confirm remove", key=f"confirm_btn_review_{row['ticker']}", help="Click again to permanently remove"):
+                    _rcols = st.columns([1, 2, 5])
+                    if _rcols[0].button("✕", key=f"cancel_remove_review_{row['ticker']}", help="Cancel"):
+                        st.session_state.pop(confirm_key_review, None)
+                        st.rerun()
+                    if _rcols[1].button("⚠️ Confirm remove", key=f"confirm_btn_review_{row['ticker']}", help="Click again to permanently remove"):
                         try:
                             remove_underlying(row["ticker"])
                             st.session_state.pop(confirm_key_review, None)
@@ -588,7 +595,7 @@ with tab_review:
                         except ValueError as e:
                             st.error(str(e))
                 else:
-                    if st.button("🗑 Remove", key=f"remove_{row['ticker']}"):
+                    if st.button("🗑 Remove", key=f"remove_review_{row['ticker']}"):
                         st.session_state[confirm_key_review] = True
                         st.rerun()
 
