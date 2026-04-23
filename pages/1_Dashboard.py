@@ -20,7 +20,32 @@ st.title("Dashboard")
 
 
 # ---------------------------------------------------------------------------
-# Pending fills alert
+# Fetch data
+# ---------------------------------------------------------------------------
+
+realized = get_realized_pnl_summary()
+active = list_active_cycles()
+_status = poller_status()
+
+
+# ---------------------------------------------------------------------------
+# P&L summary metrics (top — primary signal)
+# ---------------------------------------------------------------------------
+
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    st.metric("Active cycles", len(active))
+with col2:
+    st.metric("Realized P&L", fmt_dollar(realized["total_realized"]))
+with col3:
+    st.metric("Closed cycles", realized["cycle_count"])
+with col4:
+    st.metric("Avg P&L / cycle", fmt_dollar(realized["avg_per_cycle"]))
+
+
+# ---------------------------------------------------------------------------
+# Pending fills alert (action-required — shown prominently only when non-zero)
 # ---------------------------------------------------------------------------
 
 def _get_pending_fills() -> list[dict]:
@@ -38,47 +63,7 @@ pending = _get_pending_fills()
 if pending:
     st.warning(f"⏳ {len(pending)} paper order(s) awaiting fill confirmation.")
     with st.expander("View pending fills"):
-        st.dataframe(
-            pd.DataFrame(pending),
-            width="stretch",
-            hide_index=True,
-        )
-
-
-# ---------------------------------------------------------------------------
-# Poller status
-# ---------------------------------------------------------------------------
-
-_status = poller_status()
-_poller_col1, _poller_col2, _poller_col3 = st.columns(3)
-with _poller_col1:
-    if _status["running"]:
-        st.success("Poller running")
-    else:
-        st.warning("Poller stopped")
-with _poller_col2:
-    st.metric("Pending fills", _status["pending_trades"])
-with _poller_col3:
-    st.metric("Poll interval", f"{_status['interval_s']}s")
-
-
-# ---------------------------------------------------------------------------
-# P&L summary metrics
-# ---------------------------------------------------------------------------
-
-realized = get_realized_pnl_summary()
-active = list_active_cycles()
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric("Active cycles", len(active))
-with col2:
-    st.metric("Realized P&L", fmt_dollar(realized["total_realized"]))
-with col3:
-    st.metric("Closed cycles", realized["cycle_count"])
-with col4:
-    st.metric("Avg P&L / cycle", fmt_dollar(realized["avg_per_cycle"]))
+        st.dataframe(pd.DataFrame(pending), width="stretch", hide_index=True)
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +99,6 @@ else:
 
     st.caption("Click a row then use the Position page to drill in.")
 
-    # Cycle selector for drill-down navigation hint
     tickers = [f"{c.underlying_id} (id={c.cycle_id})" for c in active]
     selected = st.selectbox("Drill into position", ["—"] + tickers)
     if selected != "—":
@@ -144,10 +128,21 @@ with st.expander("Closed cycles"):
                 "Premium":      fmt_dollar(r["total_premium"]),
                 "Rolls":        (r["roll_count"] or 0),
             })
-        st.dataframe(
-            pd.DataFrame(closed_data),
-            width="stretch",
-            hide_index=True,
-        )
+        st.dataframe(pd.DataFrame(closed_data), width="stretch", hide_index=True)
     else:
         st.write("No closed cycles yet.")
+
+
+# ---------------------------------------------------------------------------
+# System status (footer — diagnostic, not trading signal)
+# ---------------------------------------------------------------------------
+
+st.divider()
+status_cols = st.columns([1, 1, 4])
+with status_cols[0]:
+    if _status["running"]:
+        st.caption("🟢 Poller running")
+    else:
+        st.caption("🔴 Poller stopped")
+with status_cols[1]:
+    st.caption(f"Poll interval: {_status['interval_s']}s")
