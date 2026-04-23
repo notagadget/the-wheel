@@ -35,7 +35,8 @@ with get_conn() as conn:
     ).fetchall()
 
 if not active_rows:
-    st.info("No active cycles. Open one via the Screener.")
+    st.info("No active cycles.")
+    st.page_link("pages/2_Screener.py", label="Open a position →", icon="🔍")
     st.stop()
 
 options = {

@@ -100,7 +100,8 @@ if mismatches:
 st.subheader("Active positions")
 
 if not active:
-    st.info("No active cycles. Use the Screener to open a new position.")
+    st.info("No active cycles yet.")
+    st.page_link("pages/2_Screener.py", label="Open a position →", icon="🔍")
 else:
     df = cycles_to_dataframe(active)
     display_df = df.drop(columns=["cycle_id"])
