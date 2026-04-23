@@ -59,7 +59,7 @@ if underlyings:
         })
     import pandas as pd
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-    st.caption("IV Rank sourced from Alpha Vantage (cached). Refresh via market_data.py.")
+    st.caption("IV Rank sourced from Tradier IV history (cached). Use 🔄 Refresh all IV to update.")
 else:
     st.info("No tickers in watchlist yet. Add one below.")
 
