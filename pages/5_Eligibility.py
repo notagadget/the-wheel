@@ -512,15 +512,22 @@ with tab_eligible:
                         except Exception as e:
                             st.error(f"Re-check failed: {str(e)}")
 
-            # Remove button (compact)
-            if cols[5].button("🗑️", key=f"remove_{row['ticker']}", help="Remove from watchlist"):
-                update_eligibility(
-                    ticker=row["ticker"],
-                    eligible=False,
-                    strategies=None,
-                    quality_notes=row["quality_notes"],
-                )
-                st.rerun()
+            # Remove button (two-click confirm)
+            confirm_key = f"confirm_remove_{row['ticker']}"
+            if st.session_state.get(confirm_key):
+                if cols[5].button("⚠️ Confirm", key=f"confirm_btn_{row['ticker']}", help="Click again to remove"):
+                    update_eligibility(
+                        ticker=row["ticker"],
+                        eligible=False,
+                        strategies=None,
+                        quality_notes=row["quality_notes"],
+                    )
+                    st.session_state.pop(confirm_key, None)
+                    st.rerun()
+            else:
+                if cols[5].button("🗑️", key=f"remove_{row['ticker']}", help="Remove from watchlist"):
+                    st.session_state[confirm_key] = True
+                    st.rerun()
 
 # ---------------------------------------------------------------------------
 # Tab 2 — Review Queue
@@ -571,12 +578,19 @@ with tab_review:
                             except ValueError as e:
                                 st.error(str(e))
 
-                if st.button("🗑 Remove", key=f"remove_{row['ticker']}"):
-                    try:
-                        remove_underlying(row["ticker"])
+                confirm_key_review = f"confirm_remove_review_{row['ticker']}"
+                if st.session_state.get(confirm_key_review):
+                    if st.button("⚠️ Confirm remove", key=f"confirm_btn_review_{row['ticker']}", help="Click again to permanently remove"):
+                        try:
+                            remove_underlying(row["ticker"])
+                            st.session_state.pop(confirm_key_review, None)
+                            st.rerun()
+                        except ValueError as e:
+                            st.error(str(e))
+                else:
+                    if st.button("🗑 Remove", key=f"remove_{row['ticker']}"):
+                        st.session_state[confirm_key_review] = True
                         st.rerun()
-                    except ValueError as e:
-                        st.error(str(e))
 
 # ---------------------------------------------------------------------------
 # Tab 3 — Scan
