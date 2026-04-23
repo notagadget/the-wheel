@@ -132,6 +132,11 @@ def refresh_iv_for_ticker(symbol: str) -> dict:
     if current_iv is None and iv_series:
         # Fall back to most recent historical value as current
         current_iv = iv_series[-1]["iv"]
+    elif current_iv is not None:
+        # Tradier returns implied_volatility as a decimal (e.g. 0.30),
+        # but get_historical_iv returns HV annualized as a percentage (e.g. 30.0).
+        # Normalize to the same scale before computing rank.
+        current_iv = current_iv * 100
 
     if current_iv is None:
         raise ValueError(f"Could not determine current IV for {symbol}")
@@ -168,6 +173,11 @@ def refresh_all_watchlist() -> list[dict]:
     Returns list of result dicts (one per ticker).
     Errors per ticker are caught and included as {"symbol": ..., "error": ...}.
     """
+    # Clear Streamlit caches so we fetch live data, not 24-hour-old cached values.
+    get_historical_iv.clear()
+    get_expirations.clear()
+    get_current_iv.clear()
+
     with get_conn() as conn:
         tickers = [
             r["underlying_id"] for r in conn.execute(
