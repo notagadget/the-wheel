@@ -180,6 +180,14 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
             "note": "Unable to compute RSI" if rsi is None else "",
         }
 
+        rsi_max = strat_config.get("rsi_max", 80.0)
+        criteria["rsi_max_check"] = {
+            "passed": rsi <= rsi_max if rsi else None,
+            "value": rsi,
+            "threshold": rsi_max,
+            "note": f"RSI(14): {rsi:.1f}" if rsi else "Unable to compute RSI",
+        }
+
     elif strategy == "FUNDAMENTAL":
         t = time.time()
         from src.yfinance_data import get_fundamentals as _get_fundamentals, get_sector
@@ -219,21 +227,6 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
         }
 
     elif strategy == "ETF_COMPONENT":
-        # Check 200dma margin
-        sma_200 = _compute_sma(common_data["daily_bars"], window=200)
-        min_pct = strat_config.get("min_pct_above_200dma", 3.0)
-        pct_above = None
-        note = "Insufficient bar data for SMA-200"
-        if price and sma_200:
-            pct_above = ((price - sma_200) / sma_200) * 100
-            note = f"SMA-200: ${sma_200:.2f} | {pct_above:+.1f}% above" if pct_above is not None else note
-        criteria["pct_above_200dma"] = {
-            "passed": pct_above >= min_pct if pct_above is not None else None,
-            "value": pct_above,
-            "threshold": min_pct,
-            "note": note,
-        }
-
         from src.yfinance_data import get_institutional_ownership_pct
         min_inst = strat_config.get("min_institutional_ownership_pct", 60.0)
         t = time.time()
@@ -308,6 +301,16 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
             "value": iv_rank,
             "threshold": min_iv_rank,
             "note": iv_rank_note,
+        }
+
+        rsi_max = strat_config.get("rsi_max", 70.0)
+        daily_bars_rsi = list(common_data["daily_bars"][-30:]) if common_data["daily_bars"] else []
+        rsi = massive.compute_rsi(daily_bars_rsi, period=14) if daily_bars_rsi else None
+        criteria["rsi_max_check"] = {
+            "passed": rsi <= rsi_max if rsi else None,
+            "value": rsi,
+            "threshold": rsi_max,
+            "note": f"RSI(14): {rsi:.1f}" if rsi else "Unable to compute RSI",
         }
 
     passes_all = all(

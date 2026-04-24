@@ -267,7 +267,7 @@ def test_scan_ticker_technical_all_pass(
     mock_quote,
     mock_tradier_bars,
 ):
-    """TECHNICAL strategy passes when price > 3% above SMA-200, RSI in range, volume/price/cap ok."""
+    """TECHNICAL strategy passes when price > 3% above SMA-200, RSI in range [30-65], volume/price/cap ok."""
     mock_quote.return_value = {"last": 50.0}
     mock_ticker_details.return_value = {"name": "Test Corp", "market_cap_b": 5.0, "exchange": "XNYS"}
     # 200 bars at 45.0 → SMA-200 = 45.0, price 50.0 is 11.1% above SMA ✓ (>3%)
@@ -275,13 +275,15 @@ def test_scan_ticker_technical_all_pass(
     mock_daily_bars.return_value = [{"close": float(50 + i)} for i in range(16)]
     mock_avg_volume.return_value = 500_000
     mock_sma.return_value = 45.0
-    mock_rsi.return_value = 50.0  # RSI between 35-65
+    mock_rsi.return_value = 50.0  # RSI >= 30 and RSI <= 65 ✓
 
     result = scanner.scan_ticker("AAPL")
 
     technical = result["strategies"]["TECHNICAL"]
     assert technical["passes_all"] is True
     assert technical["criteria"]["pct_above_200dma"]["passed"] is True
+    assert technical["criteria"]["rsi"]["passed"] is True
+    assert technical["criteria"]["rsi_max_check"]["passed"] is True
     assert result["passes_any"] is True
 
 
@@ -381,6 +383,40 @@ def test_scan_ticker_above_200dma_insufficient_margin(
     technical = result["strategies"]["TECHNICAL"]
     assert technical["passes_all"] is False
     assert technical["criteria"]["pct_above_200dma"]["passed"] is False
+
+
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
+@patch("src.massive.get_daily_bars")
+@patch("src.massive.get_sma")
+@patch("src.massive.compute_rsi")
+@patch("src.massive.compute_avg_volume")
+@patch("src.massive.get_ticker_details")
+def test_scan_ticker_technical_fails_rsi_max(
+    mock_ticker_details,
+    mock_avg_volume,
+    mock_rsi,
+    mock_sma,
+    mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
+):
+    """TECHNICAL fails when RSI exceeds max threshold (65.0)."""
+    mock_quote.return_value = {"last": 50.0}
+    mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    # 200 bars at 45.0 → SMA-200 = 45.0, price 50.0 is 11.1% above SMA ✓ (>3%)
+    mock_tradier_bars.return_value = [{"close": 45.0, "volume": 500_000}] * 200
+    mock_daily_bars.return_value = [{"close": float(50 + i)} for i in range(16)]
+    mock_avg_volume.return_value = 500_000
+    mock_sma.return_value = 45.0
+    mock_rsi.return_value = 70.0  # RSI >= 30 but RSI > 65 ✗
+
+    result = scanner.scan_ticker("AAPL")
+
+    technical = result["strategies"]["TECHNICAL"]
+    assert technical["passes_all"] is False
+    assert technical["criteria"]["rsi"]["passed"] is True
+    assert technical["criteria"]["rsi_max_check"]["passed"] is False
 
 
 @patch("src.yfinance_data.get_fundamentals")
@@ -645,6 +681,49 @@ def test_scan_ticker_vol_premium_manual_criteria(
     assert vol["criteria"]["min_iv_rank"]["passed"] is None
 
 
+@patch("src.tradier.get_historical_iv")
+@patch("src.market_data.get_current_iv")
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
+@patch("src.massive.get_daily_bars")
+@patch("src.massive.get_sma")
+@patch("src.massive.compute_rsi")
+@patch("src.massive.compute_avg_volume")
+@patch("src.massive.get_ticker_details")
+def test_scan_ticker_vol_premium_fails_rsi_max(
+    mock_ticker_details,
+    mock_avg_volume,
+    mock_rsi,
+    mock_sma,
+    mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
+    mock_current_iv,
+    mock_historical_iv,
+):
+    """VOL_PREMIUM fails when RSI exceeds max threshold (70.0)."""
+    mock_quote.return_value = {"last": 50.0}
+    mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 500_000}]
+    mock_daily_bars.return_value = [{"close": float(50 + i)} for i in range(16)]
+    mock_avg_volume.return_value = 500_000
+    mock_sma.return_value = 45.0
+    mock_rsi.return_value = 75.0  # RSI > 70 ✗
+    # IV/HV passing criteria
+    mock_current_iv.return_value = 0.45
+    mock_historical_iv.return_value = [
+        {"iv": 0.30},
+        {"iv": 0.35},
+        {"iv": 0.40},
+    ]
+
+    result = scanner.scan_ticker("AAPL")
+
+    vol = result["strategies"]["VOL_PREMIUM"]
+    assert vol["criteria"]["rsi_max_check"]["passed"] is False
+    assert vol["passes_all"] is False
+
+
 @patch("src.yfinance_data.get_institutional_ownership_pct")
 @patch("src.scanner._get_daily_bars_tradier")
 @patch("src.tradier.get_quote")
@@ -748,6 +827,41 @@ def test_scan_ticker_etf_component_unavailable(
     etf = result["strategies"]["ETF_COMPONENT"]
     assert etf["criteria"]["min_institutional_ownership_pct"]["passed"] is None
     assert "yfinance unavailable" in etf["criteria"]["min_institutional_ownership_pct"]["note"]
+
+
+@patch("src.yfinance_data.get_institutional_ownership_pct")
+@patch("src.scanner._get_daily_bars_tradier")
+@patch("src.tradier.get_quote")
+@patch("src.massive.get_daily_bars")
+@patch("src.massive.get_sma")
+@patch("src.massive.compute_rsi")
+@patch("src.massive.compute_avg_volume")
+@patch("src.massive.get_ticker_details")
+def test_scan_ticker_etf_component_no_sma_criterion(
+    mock_ticker_details,
+    mock_avg_volume,
+    mock_rsi,
+    mock_sma,
+    mock_daily_bars,
+    mock_quote,
+    mock_tradier_bars,
+    mock_inst_ownership,
+):
+    """ETF_COMPONENT strategy does not evaluate pct_above_200dma criterion."""
+    mock_quote.return_value = {"last": 50.0}
+    mock_ticker_details.return_value = {"name": "Test", "market_cap_b": 5.0, "exchange": "XNYS"}
+    mock_tradier_bars.return_value = [{"close": 50.0, "volume": 1_000_000}]
+    mock_daily_bars.return_value = [{"close": 50.0}]
+    mock_avg_volume.return_value = 1_000_000
+    mock_sma.return_value = 45.0
+    mock_rsi.return_value = 50.0
+    mock_inst_ownership.return_value = 72.0
+
+    result = scanner.scan_ticker("AAPL")
+
+    etf = result["strategies"]["ETF_COMPONENT"]
+    assert "pct_above_200dma" not in etf["criteria"]
+    assert "min_institutional_ownership_pct" in etf["criteria"]
 
 
 @patch("src.yfinance_data.get_institutional_ownership_pct")

@@ -67,9 +67,19 @@ Alpha Vantage API (via market_data.py)
 - Example: SMA-200 = $50, price = $51.50 → 3.0% above (meets threshold).
 - In `scanner.py`, criterion key is `pct_above_200dma` with value/threshold/note fields.
 
+**RSI thresholds** (min: 30.0, max: 65.0): Prevents trade entry in oversold or overbought conditions.
+
+- Computed from last 30 daily bars using Wilder's RSI(14).
+- `rsi` criterion (min threshold) → `passed: rsi >= 30.0` (avoids oversold reverse patterns).
+- `rsi_max_check` criterion (max threshold) → `passed: rsi <= 65.0` (avoids euphoric runups).
+- Both must pass for TECHNICAL to pass_all.
+
 ### ETF_COMPONENT
 
-**`min_pct_above_200dma`** (default: 3.0%): Same logic as TECHNICAL. Ensures ETF holdings trade with momentum.
+No trend/SMA criteria — evaluates institutional thesis only.
+
+- Checks: `min_institutional_ownership_pct` (default: 60.0%) and core fundamentals (price, market cap, volume).
+- Rationale: ETF holdings are pre-screened for technical health by fund managers. Wheel trading ETF components benefits from natural support/resistance without requiring additional trend filters.
 
 ### FUNDAMENTAL
 
@@ -80,3 +90,11 @@ Alpha Vantage API (via market_data.py)
 - If sector is not available (`None`), D/E is evaluated normally — missing data doesn't fail the check.
 - If sector is in the inclusion set (default behavior), D/E is evaluated against `max_debt_equity` threshold.
 - Rationale: financials, utilities, and real estate have structural leverage requirements that make D/E ratios misleading for wheel trading.
+
+### VOL_PREMIUM
+
+**`rsi_max`** (default: 70.0): Excludes parabolic/overextended candidates from vol premium strategy.
+
+- Prevents premium selling into euphoric rallies where IV is likely to collapse post-rally.
+- `rsi_max_check` criterion → `passed: rsi <= 70.0`.
+- Computed from last 30 daily bars using Wilder's RSI(14), same as TECHNICAL.

@@ -42,7 +42,6 @@ STRATEGIES: dict[str, dict] = {
         "min_market_cap_b": 2.0,
         "min_avg_volume": 1_000_000,
         "min_institutional_ownership_pct": 60.0,
-        "min_pct_above_200dma": 3.0,
     },
     "VOL_PREMIUM": {
         "description": "Stocks where IV chronically exceeds realized HV (vol risk premium).",
@@ -52,6 +51,7 @@ STRATEGIES: dict[str, dict] = {
         "min_avg_volume": 500_000,
         "min_iv_hv_ratio": 1.3,
         "min_iv_rank": 50.0,
+        "rsi_max": 70.0,
     },
 }
 
