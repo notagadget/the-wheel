@@ -527,6 +527,7 @@ with tab_eligible:
                     _status.text(f"Checking {_row['ticker']}…")
                     try:
                         _result = scan_ticker(_row["ticker"], quotes_cache={}, hiv_cache={}, skip_strategies=None)
+                        st.session_state[f"elig_criteria_{_row['ticker']}"] = _result
                         if _result.get("error"):
                             _failed.append(_row["ticker"])
                         else:
