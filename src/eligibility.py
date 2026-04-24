@@ -31,7 +31,7 @@ STRATEGIES: dict[str, dict] = {
         "min_market_cap_b": 1.0,
         "min_avg_volume": 300_000,
         "above_200dma": True,
-        "rsi_min": 35.0,
+        "rsi_min": 30.0,
         "rsi_max": 65.0,
     },
     "ETF_COMPONENT": {
@@ -46,10 +46,10 @@ STRATEGIES: dict[str, dict] = {
         "description": "Stocks where IV chronically exceeds realized HV (vol risk premium).",
         "min_price": 10.0,
         "max_price": 100.0,
-        "min_market_cap_b": 0.5,
-        "min_avg_volume": 200_000,
-        "min_iv_hv_ratio": 1.2,
-        "min_iv_rank": 40.0,
+        "min_market_cap_b": 1.0,
+        "min_avg_volume": 500_000,
+        "min_iv_hv_ratio": 1.3,
+        "min_iv_rank": 50.0,
     },
 }
 

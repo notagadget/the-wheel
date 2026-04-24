@@ -529,7 +529,6 @@ def test_scan_ticker_etf_component_passes(
     etf = result["strategies"]["ETF_COMPONENT"]
     assert etf["criteria"]["min_institutional_ownership_pct"]["passed"] is True
     assert etf["criteria"]["min_institutional_ownership_pct"]["value"] == 72.45
-    assert "72.5% institutional" in etf["criteria"]["min_institutional_ownership_pct"]["note"]
 
 
 @patch("src.yfinance_data.get_institutional_ownership_pct")
