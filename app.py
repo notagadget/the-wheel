@@ -32,7 +32,7 @@ start_poller()
 pages = [
     st.Page("app_home.py", title="Home", icon="🏠", default=True),
     st.Page("pages/1_Dashboard.py", title="Dashboard", icon="📊"),
-    st.Page("pages/2_Screener.py", title="Screener", icon="🔍"),
+    st.Page("pages/2_Screener.py", title="New Position", icon="➕"),
     st.Page("pages/3_Position.py", title="Position", icon="📌"),
     st.Page("pages/4_Ledger.py", title="Ledger", icon="📒"),
     st.Page("pages/5_Eligibility.py", title="Eligibility", icon="✅"),
