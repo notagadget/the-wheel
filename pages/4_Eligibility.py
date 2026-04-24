@@ -471,9 +471,10 @@ with tab_eligible:
   [data-testid="stHorizontalBlock"] [data-testid="stCheckbox"] {
     display: flex;
     align-items: center;
+    justify-content: center;
     min-height: unset !important;
     padding-top: 0 !important;
-    margin-top: -0.15rem !important;
+    margin-top: 0.55rem !important;
   }
   [data-testid="stHorizontalBlock"] [data-testid="stCheckbox"] > label {
     padding-top: 0 !important;
@@ -583,34 +584,38 @@ with tab_eligible:
             ticker = row["ticker"]
             current_strategies = set(row["strategies"])
 
-            badges = "\u2003·\u2003".join(
+            badges = "\u2002\u00b7\u2002".join(
                 (f"✅ {_short_labels.get(s, s[:4])}" if s in current_strategies else f"❌ {_short_labels.get(s, s[:4])}")
                 for s in _sorted_strats
             )
             iv_display = f"IV: {row['iv_rank_cached']:.1f}%" if row["iv_rank_cached"] is not None else "IV: —"
-            expander_label = f"{ticker}\u2003|\u2003{badges}\u2003|\u2003{iv_display}"
+            expander_label = f"{ticker}\u2003\u2003|\u2003\u2003{badges}\u2003\u2003|\u2003\u2003{iv_display}"
 
-            with st.expander(expander_label, expanded=False):
+            _chk_col, _exp_col = st.columns([1, 11])
+            with _chk_col:
                 st.checkbox(
-                    "Select for deletion",
+                    "✓",
                     key=f"chk_elig_{ticker}",
+                    label_visibility="collapsed",
+                    help=f"Select {ticker} for deletion",
                 )
+            with _exp_col:
+                with st.expander(expander_label, expanded=False):
+                    if row.get("quality_notes"):
+                        st.caption(f"Notes: {row['quality_notes']}")
 
-                if row.get("quality_notes"):
-                    st.caption(f"Notes: {row['quality_notes']}")
+                    _cache_key = f"elig_criteria_{ticker}"
+                    _cached = st.session_state.get(_cache_key)
 
-                _cache_key = f"elig_criteria_{ticker}"
-                _cached = st.session_state.get(_cache_key)
+                    _btn_label = "🔄 Refresh criteria" if _cached else "🔍 Load criteria"
+                    if st.button(_btn_label, key=f"load_criteria_{ticker}"):
+                        with st.spinner(f"Scanning {ticker}…"):
+                            _scan_result = scan_ticker(ticker, quotes_cache={}, hiv_cache={}, skip_strategies=None)
+                            st.session_state[_cache_key] = _scan_result
+                            _cached = _scan_result
 
-                _btn_label = "🔄 Refresh criteria" if _cached else "🔍 Load criteria"
-                if st.button(_btn_label, key=f"load_criteria_{ticker}"):
-                    with st.spinner(f"Scanning {ticker}…"):
-                        _scan_result = scan_ticker(ticker, quotes_cache={}, hiv_cache={}, skip_strategies=None)
-                        st.session_state[_cache_key] = _scan_result
-                        _cached = _scan_result
-
-                if _cached:
-                    _render_scan_result_table(_cached, collapsed=False, index=0, show_add_button=False, use_expander=False)
+                    if _cached:
+                        _render_scan_result_table(_cached, collapsed=False, index=0, show_add_button=False, use_expander=False)
 
 # ---------------------------------------------------------------------------
 # Tab 2 — Review Queue
