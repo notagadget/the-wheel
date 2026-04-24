@@ -23,6 +23,7 @@ STRATEGIES: dict[str, dict] = {
         "min_avg_volume": 500_000,
         "requires_positive_cashflow": True,
         "max_debt_equity": 1.5,
+        "excluded_sectors": ["Financial Services", "Utilities", "Real Estate"],
     },
     "TECHNICAL": {
         "description": "Stocks above 200-day MA with defined support levels.",
@@ -30,7 +31,7 @@ STRATEGIES: dict[str, dict] = {
         "max_price": 150.0,
         "min_market_cap_b": 1.0,
         "min_avg_volume": 300_000,
-        "above_200dma": True,
+        "min_pct_above_200dma": 3.0,
         "rsi_min": 30.0,
         "rsi_max": 65.0,
     },
@@ -41,6 +42,7 @@ STRATEGIES: dict[str, dict] = {
         "min_market_cap_b": 2.0,
         "min_avg_volume": 1_000_000,
         "min_institutional_ownership_pct": 60.0,
+        "min_pct_above_200dma": 3.0,
     },
     "VOL_PREMIUM": {
         "description": "Stocks where IV chronically exceeds realized HV (vol risk premium).",

@@ -3,10 +3,12 @@ yfinance_data.py — Supplemental market data via yfinance.
 
 Used for data not available via Tradier/Massive:
 - Institutional ownership percentage (from SEC 13F filings)
+- Sector classification
 """
 
 import yfinance as yf
 import streamlit as st
+from functools import lru_cache
 
 
 @st.cache_data(ttl=86400)
@@ -48,3 +50,16 @@ def get_fundamentals(symbol: str) -> dict:
         return {"free_cash_flow": fcf, "debt_to_equity": de}
     except Exception:
         return {"free_cash_flow": None, "debt_to_equity": None}
+
+
+@lru_cache(maxsize=256)
+def get_sector(symbol: str) -> str | None:
+    """
+    Return sector classification from yfinance.
+    Returns None on any exception.
+    """
+    try:
+        ticker = yf.Ticker(symbol)
+        return ticker.info.get("sector")
+    except Exception:
+        return None

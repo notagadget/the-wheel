@@ -156,11 +156,17 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
     if strategy == "TECHNICAL":
         # SMA computed locally from already-fetched Tradier bars — no extra API call
         sma_200 = _compute_sma(common_data["daily_bars"], window=200)
-        criteria["above_200dma"] = {
-            "passed": price > sma_200 if price and sma_200 else None,
-            "value": sma_200,
-            "threshold": "SMA-200",
-            "note": "Insufficient bar data for SMA-200" if not sma_200 else "",
+        min_pct = strat_config.get("min_pct_above_200dma", 3.0)
+        pct_above = None
+        note = "Insufficient bar data for SMA-200"
+        if price and sma_200:
+            pct_above = ((price - sma_200) / sma_200) * 100
+            note = f"SMA-200: ${sma_200:.2f} | {pct_above:+.1f}% above" if pct_above is not None else note
+        criteria["pct_above_200dma"] = {
+            "passed": pct_above >= min_pct if pct_above is not None else None,
+            "value": pct_above,
+            "threshold": min_pct,
+            "note": note,
         }
 
         rsi_min = strat_config.get("rsi_min", 30.0)
@@ -176,7 +182,7 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
 
     elif strategy == "FUNDAMENTAL":
         t = time.time()
-        from src.yfinance_data import get_fundamentals as _get_fundamentals
+        from src.yfinance_data import get_fundamentals as _get_fundamentals, get_sector
         fundamentals = _get_fundamentals(symbol)
         strat_profile["fundamentals_ms"] = (time.time() - t) * 1000
 
@@ -193,14 +199,41 @@ def _evaluate_strategy(symbol: str, strategy: str, common_data: dict, hiv_cache:
 
         de_ratio = fundamentals.get("debt_to_equity")
         max_de = strat_config.get("max_debt_equity", 1.5)
+        excluded_sectors = strat_config.get("excluded_sectors", [])
+
+        sector = get_sector(symbol)
+        de_passed = None
+        de_note = "D/E unavailable" if de_ratio is None else ""
+
+        if sector is not None and sector in excluded_sectors:
+            de_passed = None
+            de_note = f"Sector '{sector}' excluded from D/E check (structural leverage)"
+        elif de_ratio is not None:
+            de_passed = de_ratio <= max_de
+
         criteria["max_debt_equity"] = {
-            "passed": de_ratio <= max_de if de_ratio is not None else None,
+            "passed": de_passed,
             "value": de_ratio,
             "threshold": max_de,
-            "note": "D/E unavailable" if de_ratio is None else "",
+            "note": de_note,
         }
 
     elif strategy == "ETF_COMPONENT":
+        # Check 200dma margin
+        sma_200 = _compute_sma(common_data["daily_bars"], window=200)
+        min_pct = strat_config.get("min_pct_above_200dma", 3.0)
+        pct_above = None
+        note = "Insufficient bar data for SMA-200"
+        if price and sma_200:
+            pct_above = ((price - sma_200) / sma_200) * 100
+            note = f"SMA-200: ${sma_200:.2f} | {pct_above:+.1f}% above" if pct_above is not None else note
+        criteria["pct_above_200dma"] = {
+            "passed": pct_above >= min_pct if pct_above is not None else None,
+            "value": pct_above,
+            "threshold": min_pct,
+            "note": note,
+        }
+
         from src.yfinance_data import get_institutional_ownership_pct
         min_inst = strat_config.get("min_institutional_ownership_pct", 60.0)
         t = time.time()

@@ -55,3 +55,28 @@ Alpha Vantage API (via market_data.py)
 - **Manual entry path**: every Tradier action has a manual equivalent so real trades are always recordable.
 - **Screening as pure filtering**: screener is stateless, returns candidates based on current market data + earnings.
 - **Two-signal screening**: `wheel_eligible` (fundamental/technical quality, set manually) is a hard gate evaluated before IV rank. IV rank is a timing signal only, not a quality signal.
+
+## Strategy configuration
+
+### TECHNICAL
+
+**`min_pct_above_200dma`** (default: 3.0%): Stock price must be at least this percentage above the 200-day SMA.
+
+- Replaces the legacy binary `above_200dma` flag.
+- Computed as: `((price - SMA_200) / SMA_200) × 100`
+- Example: SMA-200 = $50, price = $51.50 → 3.0% above (meets threshold).
+- In `scanner.py`, criterion key is `pct_above_200dma` with value/threshold/note fields.
+
+### ETF_COMPONENT
+
+**`min_pct_above_200dma`** (default: 3.0%): Same logic as TECHNICAL. Ensures ETF holdings trade with momentum.
+
+### FUNDAMENTAL
+
+**`excluded_sectors`** (default: `["Financial Services", "Utilities", "Real Estate"]`): D/E evaluation is skipped for these sectors.
+
+- Sector fetched via `yfinance_data.get_sector()` using yfinance `.info["sector"]`.
+- If sector matches an excluded entry, `max_debt_equity` criterion is set to `passed = None` (not applicable) with note `"Sector '{sector}' excluded from D/E check (structural leverage)"`.
+- If sector is not available (`None`), D/E is evaluated normally — missing data doesn't fail the check.
+- If sector is in the inclusion set (default behavior), D/E is evaluated against `max_debt_equity` threshold.
+- Rationale: financials, utilities, and real estate have structural leverage requirements that make D/E ratios misleading for wheel trading.
