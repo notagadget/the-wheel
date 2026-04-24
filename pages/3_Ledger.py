@@ -1,5 +1,5 @@
 """
-4_Ledger.py — Full trade ledger, unified paper + manual.
+3_Ledger.py — Full trade ledger, unified paper + manual.
 
 Shows all trades across all cycles. Filterable by ticker, source,
 trade type, fill status, and date range.
@@ -115,7 +115,7 @@ st.divider()
 
 if not trade_dicts:
     st.info("No trades match the selected filters.")
-    st.page_link("pages/2_Screener.py", label="Open a position →", icon="➕")
+    st.page_link("pages/2_Positions.py", label="Open a position →", icon="➕")
 else:
     df = trades_to_dataframe(trade_dicts)
     # Add cycle state column for context

@@ -86,7 +86,7 @@ st.subheader("Active positions")
 
 if not active:
     st.info("No active cycles yet.")
-    st.page_link("pages/2_Screener.py", label="Open a position →", icon="➕")
+    st.page_link("pages/2_Positions.py", label="Open a position →", icon="➕")
 else:
     df = cycles_to_dataframe(active)
     display_df = df.drop(columns=["cycle_id"])
@@ -97,14 +97,14 @@ else:
         hide_index=True,
     )
 
-    st.caption("Click a row then use the Position page to drill in.")
+    st.caption("Click a row then use the Positions page to drill in.")
 
     tickers = [f"{c.underlying_id} (id={c.cycle_id})" for c in active]
     selected = st.selectbox("Drill into position", ["—"] + tickers)
     if selected != "—":
         cycle_id = int(selected.split("id=")[1].rstrip(")"))
         st.session_state["selected_cycle_id"] = cycle_id
-        st.info(f"cycle_id {cycle_id} selected — navigate to **Position** in the sidebar.")
+        st.info(f"cycle_id {cycle_id} selected — navigate to **Positions** in the sidebar.")
 
 
 # ---------------------------------------------------------------------------

@@ -181,8 +181,10 @@ def _render_criterion(crit_name: str, crit_data: dict):
         st.caption(formatted["note"])
 
 
-def _render_scan_result_table(result: dict, collapsed: bool = False, index: int = 0):
+def _render_scan_result_table(result: dict, collapsed: bool = False, index: int = 0, show_add_button: bool = True, use_expander: bool = True):
     """Render scan result as an HTML card with strategy tables."""
+    import contextlib
+
     symbol = result["symbol"]
 
     if result.get("error"):
@@ -213,7 +215,8 @@ def _render_scan_result_table(result: dict, collapsed: bool = False, index: int 
     label = f"{header_text} — {strategy_count} strateg{'y' if strategy_count == 1 else 'ies'} pass"
 
     expanded_state = False if collapsed else passes_any
-    with st.expander(label, expanded=expanded_state):
+    ctx = st.expander(label, expanded=expanded_state) if use_expander else contextlib.nullcontext()
+    with ctx:
         html_parts = []
 
         html_parts.append(
@@ -375,14 +378,15 @@ def _render_scan_result_table(result: dict, collapsed: bool = False, index: int 
 
         passing_strategies = [s for s, d in strategies.items() if d.get("passes_all")]
 
-        if st.button(
-            "✨ Add to watchlist",
-            key=f"add_scan_{symbol}_{index}",
-            disabled=not passing_strategies,
-            help="Only enabled if at least one strategy passes" if not passing_strategies else None,
-        ):
-            _add_from_scan(symbol, passing_strategies)
-            st.rerun()
+        if show_add_button:
+            if st.button(
+                "✨ Add to watchlist",
+                key=f"add_scan_{symbol}_{index}",
+                disabled=not passing_strategies,
+                help="Only enabled if at least one strategy passes" if not passing_strategies else None,
+            ):
+                _add_from_scan(symbol, passing_strategies)
+                st.rerun()
 
 
 def _render_scan_result(result: dict, collapsed: bool = False, index: int = 0):
@@ -574,45 +578,39 @@ with tab_eligible:
         st.caption(f"{len(eligible)} ticker(s)")
         _short_labels = {"FUNDAMENTAL": "Fund", "TECHNICAL": "Tech", "ETF_COMPONENT": "ETF", "VOL_PREMIUM": "Vol"}
         _sorted_strats = sorted(STRATEGIES.keys())
-        _col_widths = [0.3, 1.5, 0.6, 0.6, 0.6, 0.6, 1.2]
-
-        header_cols = st.columns(_col_widths)
-        header_cols[0].caption("")
-        header_cols[1].caption("Ticker")
-        for i, strategy in enumerate(_sorted_strats):
-            label = _short_labels.get(strategy, strategy[:4])
-            full_label = STRATEGY_LABELS.get(strategy, strategy)
-            header_cols[2 + i].markdown(
-                f'<div title="{full_label}" style="text-align:center;'
-                f'font-size:0.7rem;color:gray;white-space:nowrap;">{label}</div>',
-                unsafe_allow_html=True,
-            )
-        header_cols[6].caption("IV Rank")
 
         for row in eligible:
-            cols = st.columns(_col_widths)
-            cols[0].checkbox(
-                "",
-                key=f"chk_elig_{row['ticker']}",
-                label_visibility="collapsed",
-            )
-            cols[1].markdown(
-                f'<div style="font-size:0.78rem;line-height:1.5;margin:0;padding:0;">{row["ticker"]}</div>',
-                unsafe_allow_html=True,
-            )
-
+            ticker = row["ticker"]
             current_strategies = set(row["strategies"])
-            for i, strategy in enumerate(_sorted_strats):
-                emoji = "✅" if strategy in current_strategies else "❌"
-                cols[2 + i].markdown(
-                    f'<div title="{STRATEGY_LABELS.get(strategy, strategy)}" '
-                    f'style="text-align:center;font-size:0.8rem;">{emoji}</div>',
-                    unsafe_allow_html=True,
+
+            badges = "\u2003·\u2003".join(
+                (f"✅ {_short_labels.get(s, s[:4])}" if s in current_strategies else f"❌ {_short_labels.get(s, s[:4])}")
+                for s in _sorted_strats
+            )
+            iv_display = f"IV: {row['iv_rank_cached']:.1f}%" if row["iv_rank_cached"] is not None else "IV: —"
+            expander_label = f"{ticker}\u2003|\u2003{badges}\u2003|\u2003{iv_display}"
+
+            with st.expander(expander_label, expanded=False):
+                st.checkbox(
+                    "Select for deletion",
+                    key=f"chk_elig_{ticker}",
                 )
 
-            cols[6].write(
-                f"{row['iv_rank_cached']:.1f}%" if row["iv_rank_cached"] is not None else "—"
-            )
+                if row.get("quality_notes"):
+                    st.caption(f"Notes: {row['quality_notes']}")
+
+                _cache_key = f"elig_criteria_{ticker}"
+                _cached = st.session_state.get(_cache_key)
+
+                _btn_label = "🔄 Refresh criteria" if _cached else "🔍 Load criteria"
+                if st.button(_btn_label, key=f"load_criteria_{ticker}"):
+                    with st.spinner(f"Scanning {ticker}…"):
+                        _scan_result = scan_ticker(ticker, quotes_cache={}, hiv_cache={}, skip_strategies=None)
+                        st.session_state[_cache_key] = _scan_result
+                        _cached = _scan_result
+
+                if _cached:
+                    _render_scan_result_table(_cached, collapsed=False, index=0, show_add_button=False, use_expander=False)
 
 # ---------------------------------------------------------------------------
 # Tab 2 — Review Queue
