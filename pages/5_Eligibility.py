@@ -415,13 +415,13 @@ def _add_from_scan(symbol: str, strategies: list[str]):
     )
 
 
-tab_eligible, tab_review, tab_scan = st.tabs(["Watchlist", "Review Queue", "Scan"])
+tab_eligible, tab_review, tab_scan = st.tabs(["Eligible Tickers", "Review Queue", "Scan"])
 
 # ---------------------------------------------------------------------------
 # Tab 1 — Eligible tickers
 # ---------------------------------------------------------------------------
 with tab_eligible:
-    st.subheader("Watchlist")
+    st.subheader("Eligible Tickers")
 
     strategy_options_filter = {STRATEGY_LABELS.get(k, k): k for k in STRATEGIES.keys()}
     strategy_filter_label = st.selectbox(
@@ -436,7 +436,7 @@ with tab_eligible:
     )
 
     if not eligible:
-        st.info("No watchlist tickers yet. Add some in the Review Queue tab.")
+        st.info("No eligible tickers yet. Scan the market or add from the Review Queue tab.")
     else:
         # Sort by conviction desc, then ticker
         eligible.sort(key=lambda r: (-r["conviction"], r["ticker"]))
