@@ -36,7 +36,7 @@ with get_conn() as conn:
 
 if not active_rows:
     st.info("No active cycles.")
-    st.page_link("pages/2_Screener.py", label="Open a position →", icon="🔍")
+    st.page_link("pages/2_Screener.py", label="Open a position →", icon="➕")
     st.stop()
 
 options = {
