@@ -3,6 +3,7 @@
 
 # Database
 db/wheel.db
+db/meta.json
 
 # Python
 __pycache__/

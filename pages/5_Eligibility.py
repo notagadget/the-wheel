@@ -1,8 +1,11 @@
 """Eligibility page — manage wheel_eligible flag and strategy assignment."""
 
+import json
 import time
 import threading
 import traceback
+from datetime import datetime
+from pathlib import Path
 import streamlit as st
 from src.eligibility import (
     STRATEGIES,
@@ -17,6 +20,21 @@ from src.scanner import scan_universe, scan_ticker
 from src.massive import MassiveAuthError, get_sp500_tickers
 from src.db import get_conn
 from src.ui_helpers import format_si
+
+_META_PATH = Path(__file__).parent.parent / "db" / "meta.json"
+
+
+def _read_meta() -> dict:
+    try:
+        return json.loads(_META_PATH.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _write_meta(data: dict) -> None:
+    existing = _read_meta()
+    existing.update(data)
+    _META_PATH.write_text(json.dumps(existing))
 
 st.title("Wheel Eligibility")
 
@@ -421,6 +439,40 @@ tab_eligible, tab_review, tab_scan = st.tabs(["Eligible Tickers", "Review Queue"
 # Tab 1 — Eligible tickers
 # ---------------------------------------------------------------------------
 with tab_eligible:
+    st.html("""
+<style>
+  /* Compact ticker table rows */
+  [data-testid="stHorizontalBlock"] {
+    gap: 0.25rem !important;
+    margin-bottom: 0 !important;
+  }
+  [data-testid="stHorizontalBlock"] [data-testid="column"] {
+    padding: 0 !important;
+  }
+  [data-testid="stHorizontalBlock"] [data-testid="stVerticalBlock"] {
+    gap: 0 !important;
+  }
+  [data-testid="stHorizontalBlock"] .element-container {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  [data-testid="stHorizontalBlock"] [data-testid="stText"] p,
+  [data-testid="stHorizontalBlock"] [data-testid="stMarkdownContainer"] p,
+  [data-testid="stHorizontalBlock"] [data-testid="stMarkdownContainer"] div {
+    font-size: 0.78rem !important;
+    line-height: 1.5 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  [data-testid="stPopover"] > button {
+    padding: 0 0.35rem !important;
+    min-height: 1.4rem !important;
+    height: 1.4rem !important;
+    font-size: 0.75rem !important;
+    line-height: 1 !important;
+  }
+</style>
+""")
     st.subheader("Eligible Tickers")
 
     strategy_options_filter = {STRATEGY_LABELS.get(k, k): k for k in STRATEGIES.keys()}
@@ -441,95 +493,98 @@ with tab_eligible:
         # Sort by conviction desc, then ticker
         eligible.sort(key=lambda r: (-r["conviction"], r["ticker"]))
 
+        col_recheck_btn, col_recheck_ts, _ = st.columns([2, 2, 2])
+        with col_recheck_btn:
+            if st.button("🔄 Re-check All", help="Re-scan all eligible tickers and update strategy status"):
+                _progress = st.progress(0)
+                _status = st.empty()
+                _updated, _failed = [], []
+                for _idx, _row in enumerate(eligible):
+                    _status.text(f"Checking {_row['ticker']}…")
+                    try:
+                        _result = scan_ticker(_row["ticker"], quotes_cache={}, hiv_cache={}, skip_strategies=None)
+                        if _result.get("error"):
+                            _failed.append(_row["ticker"])
+                        else:
+                            _passing = [s for s, d in _result.get("strategies", {}).items() if d.get("passes_all")]
+                            if _passing:
+                                update_eligibility(
+                                    ticker=_row["ticker"],
+                                    eligible=True,
+                                    strategies=_passing,
+                                    quality_notes=None,
+                                )
+                                _updated.append(_row["ticker"])
+                            else:
+                                _failed.append(_row["ticker"])
+                    except Exception:
+                        _failed.append(_row["ticker"])
+                    _progress.progress((_idx + 1) / len(eligible))
+                _status.empty()
+                _ts = datetime.now()
+                st.session_state["eligibility_last_recheck"] = _ts
+                _write_meta({"eligibility_last_recheck": _ts.isoformat()})
+                if _updated:
+                    st.success(f"Updated {len(_updated)} ticker(s).")
+                if _failed:
+                    st.warning(f"{len(_failed)} ticker(s) had no passing strategies: {', '.join(_failed)}")
+                st.rerun()
+        with col_recheck_ts:
+            if "eligibility_last_recheck" not in st.session_state:
+                _stored = _read_meta().get("eligibility_last_recheck")
+                if _stored:
+                    try:
+                        st.session_state["eligibility_last_recheck"] = datetime.fromisoformat(_stored)
+                    except ValueError:
+                        pass
+            _last_recheck = st.session_state.get("eligibility_last_recheck")
+            if _last_recheck:
+                st.caption(f"Last checked: {_last_recheck.strftime('%b %-d, %-I:%M %p')}")
+
         st.caption(f"{len(eligible)} ticker(s)")
-        header_cols = st.columns([1.5, 2.5, 1.5, 1.5, 1, 1])
+        _short_labels = {"FUNDAMENTAL": "Fund", "TECHNICAL": "Tech", "ETF_COMPONENT": "ETF", "VOL_PREMIUM": "Vol"}
+        _sorted_strats = sorted(STRATEGIES.keys())
+        _col_widths = [1.5, 0.6, 0.6, 0.6, 0.6, 1.2, 0.5]
+
+        header_cols = st.columns(_col_widths)
         header_cols[0].caption("Ticker")
-        with header_cols[1].container():
-            strat_header_cols = st.columns(len(STRATEGIES))
-            for i, strategy in enumerate(sorted(STRATEGIES.keys())):
-                label = STRATEGY_LABELS.get(strategy, strategy)
-                with strat_header_cols[i]:
-                    st.markdown(
-                        f'<div style="height:90px;display:flex;align-items:flex-end;justify-content:flex-start;">'
-                        f'<span style="writing-mode:vertical-lr;transform:rotate(180deg);'
-                        f'font-size:0.8rem;color:gray;white-space:nowrap;">{label}</span>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-        header_cols[2].caption("IV Rank")
-        header_cols[3].caption("Notes")
-        header_cols[4].caption("")
-        header_cols[5].caption("")
+        for i, strategy in enumerate(_sorted_strats):
+            label = _short_labels.get(strategy, strategy[:4])
+            full_label = STRATEGY_LABELS.get(strategy, strategy)
+            header_cols[1 + i].markdown(
+                f'<div title="{full_label}" style="text-align:center;'
+                f'font-size:0.7rem;color:gray;white-space:nowrap;">{label}</div>',
+                unsafe_allow_html=True,
+            )
+        header_cols[5].caption("IV Rank")
+        header_cols[6].caption("")
 
         for row in eligible:
-            cols = st.columns([1.5, 2.5, 1.5, 1.5, 1, 1])
+            cols = st.columns(_col_widths)
             cols[0].write(row["ticker"])
 
-            # Strategy status indicators (read-only, updated via re-check)
-            with cols[1].container():
-                current_strategies = set(row["strategies"])
-                strat_cols = st.columns(len(STRATEGIES))
-                for i, strategy in enumerate(sorted(STRATEGIES.keys())):
-                    emoji = "✅" if strategy in current_strategies else "❌"
-                    strat_cols[i].markdown(
-                        f'<div title="{STRATEGY_LABELS.get(strategy, strategy)}" '
-                        f'style="text-align:center;font-size:1.1rem;">{emoji}</div>',
-                        unsafe_allow_html=True,
-                    )
+            current_strategies = set(row["strategies"])
+            for i, strategy in enumerate(_sorted_strats):
+                emoji = "✅" if strategy in current_strategies else "❌"
+                cols[1 + i].markdown(
+                    f'<div title="{STRATEGY_LABELS.get(strategy, strategy)}" '
+                    f'style="text-align:center;font-size:0.8rem;">{emoji}</div>',
+                    unsafe_allow_html=True,
+                )
 
-            cols[2].write(
+            cols[5].write(
                 f"{row['iv_rank_cached']:.1f}%" if row["iv_rank_cached"] is not None else "—"
             )
 
-            # Notes and re-check button
-            with cols[3].container():
-                cols[3].write(row["quality_notes"] or "—")
-                if st.button("🔄", key=f"recheck_{row['ticker']}", help="Re-check eligibility"):
-                    with st.spinner(f"Re-checking {row['ticker']}..."):
-                        try:
-                            result = scan_ticker(
-                                row["ticker"],
-                                quotes_cache={},
-                                hiv_cache={},
-                                skip_strategies=None,
-                            )
-                            if result.get("error"):
-                                st.error(f"Error: {result['error']}")
-                            else:
-                                passing = [s for s, d in result.get("strategies", {}).items() if d.get("passes_all")]
-                                if passing:
-                                    passing_labels = [STRATEGY_LABELS.get(s, s) for s in passing]
-                                    update_eligibility(
-                                        ticker=row["ticker"],
-                                        eligible=True,
-                                        strategies=passing,
-                                        quality_notes=f"Re-checked: {', '.join(passing_labels)}",
-                                    )
-                                    st.success(f"Updated to: {', '.join(passing)}")
-                                    st.rerun()
-                                else:
-                                    st.warning("No strategies passed.")
-                        except Exception as e:
-                            st.error(f"Re-check failed: {str(e)}")
-
-            # Remove button (two-click confirm)
-            confirm_key = f"confirm_remove_{row['ticker']}"
-            if st.session_state.get(confirm_key):
-                if cols[4].button("✕", key=f"cancel_remove_{row['ticker']}", help="Cancel removal"):
-                    st.session_state.pop(confirm_key, None)
-                    st.rerun()
-                if cols[5].button("⚠️ Confirm", key=f"confirm_btn_{row['ticker']}", help="Click again to remove"):
+            with cols[6].popover("🗑️"):
+                st.write(f"Remove **{row['ticker']}**?")
+                if st.button("Confirm", key=f"confirm_btn_{row['ticker']}", type="primary"):
                     update_eligibility(
                         ticker=row["ticker"],
                         eligible=False,
                         strategies=None,
-                        quality_notes=row["quality_notes"],
+                        quality_notes=None,
                     )
-                    st.session_state.pop(confirm_key, None)
-                    st.rerun()
-            else:
-                if cols[5].button("🗑️", key=f"remove_{row['ticker']}", help="Remove from watchlist"):
-                    st.session_state[confirm_key] = True
                     st.rerun()
 
 # ---------------------------------------------------------------------------
